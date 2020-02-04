@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import h5py
-from cdsd.decrypt import read_encrypted_tar_audio_file
+from decrypt import read_encrypted_tar_audio_file
 import io
 import soundfile as sf
 import sys
@@ -68,7 +68,7 @@ def extract_background_audio(index_path, data_dir, output_dir,
     audio_output_dir = os.path.join(output_dir, year_str, index_name)
     os.makedirs(audio_output_dir, exist_ok=True)
 
-    print("Reading index file.")
+    print("Reading index file: {}".format(index_path))
     with h5py.File(index_path, 'r') as index_h5:
         timestamp_list = index_h5['recording_index']['timestamp']
         day_hdf5_path_list = index_h5['recording_index']['day_hdf5_path']
@@ -76,7 +76,7 @@ def extract_background_audio(index_path, data_dir, output_dir,
 
     index_len = len(timestamp_list)
     if index_len == 0:
-        print("No available audio. Skipping.")
+        print("No available audio. Skipping {}\n".format(index_path))
         return
 
     if threshold_path is None:
@@ -85,21 +85,21 @@ def extract_background_audio(index_path, data_dir, output_dir,
         with open(threshold_path, 'r') as f:
             threshold_dict = json.load(f)
 
-    print("Reading class predictions file.")
     cls_pred_path = os.path.join(data_dir, 'class_predictions',
-                                 cls_version, year_str)
+                                 cls_version, year_str,
+                                 os.path.basename(index_path).replace('recording_index', 'class_predictions'))
     with h5py.File(cls_pred_path, 'r') as cls_pred_h5:
         cls_pred_len = len(cls_pred_h5['coarse'])
         if cls_pred_len == 0:
-            print("No available predictions. Skipping.")
+            print("No class predictions available. Skipping {}\n".format(index_path))
             return
 
         if cls_pred_len != index_len:
-            print("Index length differs from class prediction file length. Skipping.")
+            print("Index length differs from class prediction file length. Skipping {}\n".format(index_path))
             return
         labels = [key for key in cls_pred_h5['coarse'][0].dtype.names
-                  if 'timestamp' not in key or 'filename' not in key]
-        foreground_mask_list = np.zeros(len(labels)).astype(bool)
+                  if ('timestamp' not in key) and ('filename' not in key)]
+        foreground_mask_list = np.zeros((index_len,)).astype(bool)
 
         # Compute classwise presence using class-specific thresholds and take logical-OR
         for key in labels:
@@ -111,7 +111,6 @@ def extract_background_audio(index_path, data_dir, output_dir,
         # Negate mask to get background
         background_mask_list = np.logical_not(foreground_mask_list)
 
-    print("Grouping index elements by audio filename.")
     # First do an initial pass to group
     day_index_dict = {}
     timestamp_list_dict = {}
@@ -127,7 +126,6 @@ def extract_background_audio(index_path, data_dir, output_dir,
 
     num_files = len(day_index_dict)
     for file_idx, day_hdf5_path in enumerate(day_index_dict.keys()):
-        print("* Processing audio for {} ({}/{})".format(day_hdf5_path, file_idx+1, num_files))
         day_index_list = day_index_dict[day_hdf5_path]
         background_mask_list = background_mask_list_dict[day_hdf5_path]
 
@@ -135,7 +133,7 @@ def extract_background_audio(index_path, data_dir, output_dir,
         audio_hdf5_path = os.path.join(data_dir, day_hdf5_path)
 
         if len(day_index_list) == 0:
-            print("No audio clips for {}, skipping...".format(day_hdf5_path))
+            continue
 
         with h5py.File(audio_hdf5_path, 'r') as audio_h5:
             for day_hdf5_index, background_mask in zip(day_index_list, background_mask_list):
@@ -157,13 +155,14 @@ def extract_background_audio(index_path, data_dir, output_dir,
                 # Set up output directory
                 day_str = os.path.splitext(os.path.basename(day_hdf5_path))[0]
 
-                fname = "{}_{}.wav".format(day_str, os.path.splitext(filename))
+                fname = "{}_{}".format(day_str, os.path.basename(filename).decode().replace('.tar.gz', '.wav'))
                 audio_path = os.path.join(audio_output_dir, fname)
 
                 # Write audio clip
                 sf.write(audio_path, audio, samplerate=SAMPLE_RATE)
                 print("Saved {}".format(audio_path))
 
+    print("Finished processing: {}\n".format(index_path))
 
 if __name__ == '__main__':
     params = process_arguments(sys.argv[1:])
