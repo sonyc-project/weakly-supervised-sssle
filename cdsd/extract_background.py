@@ -35,6 +35,10 @@ def process_arguments(args):
                         default=0.1,
                         help='Default threshold value for all classes. Ignored if --threshold-path is specified.')
 
+    parser.add_argument('--sensor-fault-threshold', type=float,
+                        default=0.1,
+                        help='Threshold value for sensor fault detection.')
+
     parser.add_argument('--cls-version', type=str,
                         default='1.0.0',
                         help='Classifier version to use for class predictions.')
@@ -60,7 +64,7 @@ def process_arguments(args):
 
 def extract_background_audio(index_path, data_dir, output_dir,
                              cls_version="1.0.0", threshold_path=None,
-                             default_threshold=0.1,
+                             default_threshold=0.1, sensor_fault_threshold=0.1,
                              decrypt_url=None, cacert_path=None,
                              cert_path=None, key_path=None):
     year_str = os.path.split(os.path.dirname(index_path))[-1]
@@ -73,11 +77,16 @@ def extract_background_audio(index_path, data_dir, output_dir,
         timestamp_list = index_h5['recording_index']['timestamp']
         day_hdf5_path_list = index_h5['recording_index']['day_hdf5_path']
         day_hdf5_index_list = index_h5['recording_index']['day_h5_index']
+        index_len = len(timestamp_list)
 
-    index_len = len(timestamp_list)
-    if index_len == 0:
-        print("No available audio. Skipping {}\n".format(index_path))
-        return
+        if index_len == 0:
+            print("No available audio. Skipping {}\n".format(index_path))
+            return
+
+        if 'sensor_fault_aggresive' in index_h5['recording_index'][0].dtype.names:
+            sensor_fault_list = index_h5['recording_index']['sensor_fault_aggresive'] >= sensor_fault_threshold
+        else:
+            sensor_fault_list = np.zeros((index_len,)).astype(bool)
 
     if threshold_path is None:
         threshold_dict = defaultdict(lambda: default_threshold)
@@ -115,19 +124,23 @@ def extract_background_audio(index_path, data_dir, output_dir,
     day_index_dict = {}
     timestamp_list_dict = {}
     background_mask_list_dict = {}
-    for timestamp, day_hdf5_path, day_hdf5_index, background_mask in zip(timestamp_list, day_hdf5_path_list, day_hdf5_index_list, background_mask_list):
+    sensor_fault_list_dict = {}
+    for timestamp, day_hdf5_path, day_hdf5_index, background_mask, sensor_fault in zip(timestamp_list, day_hdf5_path_list, day_hdf5_index_list, background_mask_list, sensor_fault_list):
         if day_hdf5_path not in day_index_dict:
             day_index_dict[day_hdf5_path] = []
             timestamp_list_dict[day_hdf5_path] = []
             background_mask_list_dict[day_hdf5_path] = []
+            sensor_fault_list_dict[day_hdf5_path] = []
         day_index_dict[day_hdf5_path].append(day_hdf5_index)
         timestamp_list_dict[day_hdf5_path].append(timestamp)
         background_mask_list_dict[day_hdf5_path].append(background_mask)
+        sensor_fault_list_dict[day_hdf5_path].append(sensor_fault)
 
     num_files = len(day_index_dict)
     for file_idx, day_hdf5_path in enumerate(day_index_dict.keys()):
         day_index_list = day_index_dict[day_hdf5_path]
         background_mask_list = background_mask_list_dict[day_hdf5_path]
+        sensor_fault_list = sensor_fault_list_dict[day_hdf5_path]
 
         day_hdf5_path = day_hdf5_path.decode()
         audio_hdf5_path = os.path.join(data_dir, day_hdf5_path)
@@ -136,8 +149,11 @@ def extract_background_audio(index_path, data_dir, output_dir,
             continue
 
         with h5py.File(audio_hdf5_path, 'r') as audio_h5:
-            for day_hdf5_index, background_mask in zip(day_index_list, background_mask_list):
+            for day_hdf5_index, background_mask, sensor_fault in zip(day_index_list, background_mask_list, sensor_fault_list):
                 if not background_mask:
+                    continue
+
+                if sensor_fault:
                     continue
 
                 # Read audio
@@ -174,6 +190,7 @@ if __name__ == '__main__':
                           output_dir=os.path.abspath(params.output_folder),
                           threshold_path=os.path.abspath(params.threshold_path),
                           default_threshold=params.default_threshold,
+                          sensor_fault_threshold=params.sensor_fault_threshold,
                           cls_version=params.cls_version,
                           decrypt_url=params.decrypt_url,
                           cacert_path=params.cacert_path,
