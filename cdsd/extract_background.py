@@ -36,7 +36,7 @@ def process_arguments(args):
                         help='Default threshold value for all classes. Ignored if --threshold-path is specified.')
 
     parser.add_argument('--sensor-fault-threshold', type=float,
-                        default=0.1,
+                        default=0.43,
                         help='Threshold value for sensor fault detection.')
 
     parser.add_argument('--cls-version', type=str,
@@ -84,7 +84,7 @@ def extract_background_audio(index_path, data_dir, output_dir,
             return
 
         if 'sensor_fault_aggresive' in index_h5['recording_index'][0].dtype.names:
-            sensor_fault_list = index_h5['recording_index']['sensor_fault_aggresive'] >= sensor_fault_threshold
+            sensor_fault_list = index_h5['recording_index']['sensor_fault_aggresive'].max(axis=-1) >= sensor_fault_threshold
         else:
             sensor_fault_list = np.zeros((index_len,)).astype(bool)
 
