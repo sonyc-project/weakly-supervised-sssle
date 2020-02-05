@@ -67,9 +67,27 @@ def sample_distribution_tuple(dist_list):
     return get_distribution_tuple(dist)
 
 
-def run(fg_folder, bg_folder, scaper_spec_path, n_soundscapes, outfolder, exp_label, random_state=123):
+def run(fg_folder, bg_folder, scaper_spec_path, n_soundscapes, out_folder, exp_label, random_state=123):
+    # create output directory
+    os.makedirs(out_folder, exist_ok=True)
+
+    # load Scaper specifications
     with open(scaper_spec_path, 'r') as f:
         scaper_spec = json.load(f)
+
+    # save generation params
+    gen_params = {
+        'fg_folder': fg_folder,
+        'bg_folder': bg_folder,
+        'scaper_spec_path': scaper_spec_path,
+        'n_soundscapes': n_soundscapes,
+        'out_folder': out_folder,
+        'exp_label': exp_label,
+        'random_state': random_state
+    }
+    gen_params_path = os.path.join(out_folder, "soundscape_gen_params_{}_{}.json".format(exp_label, scaper_spec['spec_label']))
+    with open(gen_params_path, 'w') as f:
+        json.dump(gen_params, f)
 
     # create a scaper that will be used below
     sc = scaper.Scaper(scaper_spec['duration'], fg_folder, bg_folder, random_state=random_state)
@@ -83,6 +101,7 @@ def run(fg_folder, bg_folder, scaper_spec_path, n_soundscapes, outfolder, exp_la
         sc.reset_bg_spec()
         sc.reset_fg_spec()
 
+        # sample distributions for background parameters
         bg_label = sample_distribution_tuple(scaper_spec['background_label'])
         bg_source_file = sample_distribution_tuple(scaper_spec['background_source_file'])
         bg_source_time = sample_distribution_tuple(scaper_spec['background_source_time'])
@@ -96,6 +115,7 @@ def run(fg_folder, bg_folder, scaper_spec_path, n_soundscapes, outfolder, exp_la
         n_events = np.random.randint(scaper_spec['min_events'],
                                      scaper_spec['max_events'] + 1)
         for _ in range(n_events):
+            # sample distributions for event parameters
             fg_label = sample_distribution_tuple(scaper_spec['event_label'])
             fg_source_file = sample_distribution_tuple(scaper_spec['event_source_file'])
             fg_source_time = sample_distribution_tuple(scaper_spec['event_source_time'])
@@ -115,9 +135,9 @@ def run(fg_folder, bg_folder, scaper_spec_path, n_soundscapes, outfolder, exp_la
                          time_stretch=time_stretch)
 
         # generate
-        audiofile = os.path.join(outfolder, "soundscape_{}_{}{:d}.wav".format(exp_label, scaper_spec['spec_label'], n))
-        jamsfile = os.path.join(outfolder, "soundscape_{}_{}{:d}.jams".format(exp_label, scaper_spec['spec_label'], n))
-        txtfile = os.path.join(outfolder, "soundscape_{}_{}{:d}.txt".format(exp_label, scaper_spec['spec_label'], n))
+        audiofile = os.path.join(out_folder, "soundscape_{}_{}{:d}.wav".format(exp_label, scaper_spec['spec_label'], n))
+        jamsfile = os.path.join(out_folder, "soundscape_{}_{}{:d}.jams".format(exp_label, scaper_spec['spec_label'], n))
+        txtfile = os.path.join(out_folder, "soundscape_{}_{}{:d}.txt".format(exp_label, scaper_spec['spec_label'], n))
 
         # TODO: If we want we can parameterize the other arguments of sc.generate at some point...
         sc.generate(audiofile, jamsfile,
@@ -158,6 +178,6 @@ if __name__ == '__main__':
         scaper_spec_path=args.scaper_spec_path,
         n_soundscapes=args.n_soundscapes,
         exp_label=args.exp_label,
-        outfolder=args.out_folder,
+        out_folder=args.out_folder,
         random_state=args.random_state)
 
