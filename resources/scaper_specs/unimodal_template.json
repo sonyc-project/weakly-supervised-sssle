@@ -1,0 +1,63 @@
+{
+    "spec_label": "unimodal",
+    "ref_db": -50,
+    "duration": 10.0,
+    "min_events": 1,
+    "max_events": 9,
+
+    "allow_repeated_label": true,
+    "allow_repeated_source": false,
+    "reverb": 0.1,
+
+    "event_time": {
+        "dist": "truncnorm",
+        "mean": 5.0,
+        "std": 2.0,
+        "min": 0.0,
+        "max": 10.0
+    },
+
+    "background_label": {
+        "dist": "const",
+        "value": "noise"
+    },
+    "background_source_file": {
+        "dist": "choose",
+        "valuelist": []},
+    "background_source_time": {
+        "dist": "const",
+        "value": 0
+    },
+    "event_label": {
+        "dist": "choose",
+        "valuelist": []
+    },
+    "event_source_file": {
+        "dist": "choose",
+        "valuelist": []
+    },
+    "event_source_time": {
+        "dist": "const",
+        "value": 0.0
+    },
+    "event_duration": {
+        "dist": "uniform",
+        "min": 0.5,
+        "max": 4.0
+    },
+    "snr": {
+        "dist": "uniform",
+        "min": 6,
+        "max": 30
+    },
+    "pitch": {
+        "dist": "uniform",
+        "min": -3.0,
+        "max": 3.0
+    },
+    "time_stretch": {
+        "dist": "uniform",
+        "min": 0.8,
+        "max": 1.2
+    }
+}
