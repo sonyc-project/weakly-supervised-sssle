@@ -137,7 +137,6 @@ def run(fg_folder, bg_folder, scaper_spec_path, n_soundscapes, out_folder, exp_l
         # generate
         audiofile = os.path.join(out_folder, "soundscape_{}_{}{:d}.wav".format(exp_label, scaper_spec['spec_label'], n))
         jamsfile = os.path.join(out_folder, "soundscape_{}_{}{:d}.jams".format(exp_label, scaper_spec['spec_label'], n))
-        txtfile = os.path.join(out_folder, "soundscape_{}_{}{:d}.txt".format(exp_label, scaper_spec['spec_label'], n))
 
         # TODO: If we want we can parameterize the other arguments of sc.generate at some point...
         sc.generate(audiofile, jamsfile,
@@ -145,8 +144,7 @@ def run(fg_folder, bg_folder, scaper_spec_path, n_soundscapes, out_folder, exp_l
                     allow_repeated_source=scaper_spec['allow_repeated_source'],
                     reverb=scaper_spec['reverb'],
                     disable_sox_warnings=True,
-                    no_audio=False,
-                    txt_path=txtfile)
+                    no_audio=False)
 
 
 def parse_arguments(args):
