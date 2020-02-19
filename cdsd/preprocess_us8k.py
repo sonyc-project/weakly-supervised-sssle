@@ -40,6 +40,7 @@ TEST_FOLDS = {9, 10}
 
 def parse_arguments(args):
     parser = ArgumentParser(sys.argv[0],
+                            description="Preprocess UrbanSound8K to be in a format usable by Scaper to synthesize soundscapes.",
                             formatter_class=RawDescriptionHelpFormatter)
     parser.add_argument('us8k_folder', type=str,
                         help='Path to UrbanSound8K dataset.')
@@ -69,7 +70,7 @@ def run(us8k_dir, out_dir, use_symlinks=False):
                 os.makedirs(label_dir, exist_ok=True)
 
     num_files = len(df)
-    for row in tqdm(df.iterrows(), total=num_files):
+    for _, row in tqdm(df.iterrows(), total=num_files):
         # Ignore "background" events
         if row['salience'] == 2:
             continue
@@ -105,7 +106,7 @@ def run(us8k_dir, out_dir, use_symlinks=False):
 
 if __name__ == '__main__':
     args = parse_arguments(sys.argv[1:])
-    run(us8k_dir=args.us8k_dir,
-        out_dir=args.out_dir,
+    run(us8k_dir=args.us8k_folder,
+        out_dir=args.out_folder,
         use_symlinks=args.use_symlinks)
 
