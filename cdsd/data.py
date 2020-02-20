@@ -5,6 +5,8 @@ import torchaudio
 from torch.utils.data import Dataset
 import jams
 from .preprocess_us8k import US8K_TO_SONYCUST_MAP
+from torchaudio.transforms import AmplitudeToDB, MelSpectrogram, MelScale
+import torchvision
 
 # Note: if we need to use pescador, see https://github.com/pescadores/pescador/issues/133
 # torchaudio.transforms.MelSpectrogram <- Note that this uses "HTK" mels
@@ -77,3 +79,23 @@ class CDSDDataset(Dataset):
             sample = self.transform(sample)
 
         return sample
+
+
+def get_data_transforms(train_config):
+    input_transform_config = train_config.get("input_transforms", [])
+    if len(input_transform_config) > 0:
+        transform_list = []
+        for transform_config in input_transform_config:
+            transform_name = transform_config["name"]
+            transform_params = transform_config["parameters"]
+            if transform_name == "AmplitudeToDB":
+                transform_list.append(AmplitudeToDB(**transform_params))
+            elif transform_name == "MelScale":
+                transform_list.append(MelScale(**transform_params))
+            elif transform_name == "MelSpectrogram":
+                transform_list.append(MelSpectrogram(**transform_params))
+            else:
+                raise ValueError("Invalid transform type: {}".format(transform_config["name"]))
+        return torchvision.transforms.Compose(transform_list)
+
+    return None

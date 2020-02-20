@@ -2,10 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.parallel
 import torch.utils.data
-import torch.nn.functional as F
-from .data import NUM_LABELS
-import torchvision.transforms
-from torchaudio.transforms import AmplitudeToDB
+from .data import get_data_transforms
 
 
 class Separator(nn.Module):
@@ -104,17 +101,7 @@ def construct_models(train_config):
     separator_config = train_config["separator"]
 
     # Set up input transformations for separator
-    input_transform_config = separator_config.get("input_transforms", [])
-    if len(input_transform_config) > 0:
-        transform_list = []
-        for transform_config in input_transform_config:
-            if transform_config["name"] == "AmplitudeToDB":
-                transform_list.append(AmplitudeToDB(**transform_config["parameters"]))
-            else:
-                raise ValueError("Invalid transform type: {}".format(transform_config["name"]))
-        separator_input_transform = torchvision.transforms.Compose(transform_list)
-    else:
-        separator_input_transform = None
+    separator_input_transform = get_data_transforms(separator_config)
 
     # Construct separator
     if separator_config["model"] == "BLSTMSpectrogramSeparator":
@@ -126,18 +113,8 @@ def construct_models(train_config):
     ## Build classifier
     classifier_config = train_config["classifier"]
 
-    # Set up input transformations for classifier
-    input_transform_config = classifier_config.get("input_transforms", [])
-    if len(input_transform_config) > 0:
-        transform_list = []
-        for transform_config in input_transform_config:
-            if transform_config["name"] == "AmplitudeToDB":
-                transform_list.append(AmplitudeToDB(**transform_config["parameters"]))
-            else:
-                raise ValueError("Invalid transform type: {}".format(transform_config["name"]))
-        classifier_input_transform = torchvision.transforms.Compose(transform_list)
-    else:
-        classifier_input_transform = None
+    # Set up input transformations for separator
+    classifier_input_transform = get_data_transforms(classifier_config)
 
     # Construct classifier
     if classifier_config["model"] == "BLSTMSpectrogramSeparator":
