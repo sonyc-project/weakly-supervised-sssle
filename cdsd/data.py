@@ -1,12 +1,12 @@
 import os
-import random
+import jams
 import torch
 import torchaudio
-from torch.utils.data import Dataset
-import jams
-from .preprocess_us8k import US8K_TO_SONYCUST_MAP
-from torchaudio.transforms import AmplitudeToDB, MelSpectrogram, MelScale
 import torchvision
+from .preprocess_us8k import US8K_TO_SONYCUST_MAP
+from torch.utils.data import Dataset
+from torchaudio.transforms import AmplitudeToDB, MelSpectrogram, MelScale
+from torch.utils.data import DataLoader
 
 # Note: if we need to use pescador, see https://github.com/pescadores/pescador/issues/133
 # torchaudio.transforms.MelSpectrogram <- Note that this uses "HTK" mels
@@ -19,7 +19,7 @@ LABEL_TO_IDX = {v: k for k, v in enumerate(LABELS)}
 
 
 class CDSDDataset(Dataset):
-    def __init__(self, root_dir, subset='train', transform=None, shuffle=True):
+    def __init__(self, root_dir, subset='train', transform=None):
         if subset not in ('train', 'valid', 'test'):
             raise ValueError('Invalid subset: {}'.format(subset))
 
@@ -41,9 +41,6 @@ class CDSDDataset(Dataset):
 
             self.files.append(name)
 
-        if shuffle:
-            random.shuffle(self.files)
-
     def __len___(self):
         return len(self.files)
 
@@ -62,17 +59,17 @@ class CDSDDataset(Dataset):
 
         jams_obj = jams.load(jams_path)
 
-        target = torch.zeros(NUM_LABELS)
+        labels = torch.zeros(NUM_LABELS)
         for ann in jams_obj.annotations:
             if ann.value.role == "foreground":
                 label = ann.value.label
                 idx = LABEL_TO_IDX[label]
-                target[idx] = 1.0
+                labels[idx] = 1.0
 
         sample = {
             'waveform': waveform,
             'sample_rate': sr,
-            'target': target
+            'labels': labels
         }
 
         if self.transform is not None:
@@ -91,11 +88,26 @@ def get_data_transforms(train_config):
             if transform_name == "AmplitudeToDB":
                 transform_list.append(AmplitudeToDB(**transform_params))
             elif transform_name == "MelScale":
-                transform_list.append(MelScale(**transform_params))
+                transform_list.append(MelScale(sample_rate=SAMPLE_RATE, **transform_params))
             elif transform_name == "MelSpectrogram":
-                transform_list.append(MelSpectrogram(**transform_params))
+                transform_list.append(MelSpectrogram(sample_rate=SAMPLE_RATE, **transform_params))
             else:
                 raise ValueError("Invalid transform type: {}".format(transform_config["name"]))
         return torchvision.transforms.Compose(transform_list)
 
     return None
+
+
+def get_batch_input_key(train_config):
+    input_key = "waveform"
+    for transform_config in train_config.get("input_transform", []):
+        transform_name = transform_config["name"]
+        if transform_name == "Spectrogram":
+            input_key = "specgram"
+        elif transform_name == "MelScale" and input_key == "specgram":
+            input_key = "mel_specgram"
+        elif transform_name == "MelSpectrogram":
+            input_key = "mel_specgram"
+
+    return input_key
+
