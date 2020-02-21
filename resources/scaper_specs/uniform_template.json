@@ -2,8 +2,11 @@
     "spec_label": "uniform",
     "ref_db": -50,
     "duration": 10.0,
-    "min_events": 1,
-    "max_events": 9,
+
+    "num_events": {
+        "dist": "ztpoisson",
+        "rate": 10
+    },
 
     "allow_repeated_label": true,
     "allow_repeated_source": false,

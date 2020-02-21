@@ -52,8 +52,28 @@ def get_distribution_tuple(dist):
         assert isinstance(std, Number)
         assert isinstance(min, Number)
         assert isinstance(max, Number)
+        return ('truncnorm', mean, std, min, max)
     else:
         raise ValueError('Invalid distribution type: {}'.format(dist_type))
+
+
+def sample_ztpoisson(lmbda):
+    """
+    Samples a value from the zero-truncated poisson distrubution, using the
+    algorithm described in http://giocc.com/zero_truncated_poisson_sampling_algorithm.html
+
+    Runs in O(lambda)
+    """
+    k = 1
+    t = np.exp(-lmbda) / (1 - np.exp(-lmbda)) * lmbda
+    s = t
+    u = np.random.random()
+
+    while s < u:
+        k += 1
+        t *= lmbda / k
+        s += t
+    return k
 
 
 def sample_distribution_tuple(dist_list):
@@ -112,8 +132,14 @@ def run(fg_folder, bg_folder, scaper_spec_path, n_soundscapes, out_folder, exp_l
                           source_time=bg_source_time)
 
         # add random number of foreground events
-        n_events = np.random.randint(scaper_spec['min_events'],
-                                     scaper_spec['max_events'] + 1)
+        if scaper_spec['num_events']['dist'] == 'uniform':
+            n_events = np.random.randint(scaper_spec['num_events']['min'],
+                                         scaper_spec['num_events']['max'] + 1)
+        elif scaper_spec['num_events']['dist'] == 'ztpoisson':
+            n_events = sample_ztpoisson(scaper_spec['num_events']['rate'])
+        else:
+            raise ValueError('Invalid distribution for number of events: {}'.format(scaper_spec['num_events']['dist']))
+
         for _ in range(n_events):
             # sample distributions for event parameters
             fg_label = sample_distribution_tuple(scaper_spec['event_label'])
