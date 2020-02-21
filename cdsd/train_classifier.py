@@ -6,11 +6,10 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from .data import get_data_transforms, get_batch_input_key, CDSDDataset, NUM_CDSD_LABELS
-from .models import construct_separator, construct_classifier
-from .losses import get_mixture_loss_function
+from .data import get_data_transforms, get_batch_input_key, CDSDDataset
+from .models import construct_classifier
 from .utils import get_optimizer
-from .logs import CDSDHistoryLogger
+from .logs import ClassifierHistoryLogger
 
 
 def parse_arguments(args):
@@ -68,29 +67,23 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
                                   num_workers=num_data_workers)
     num_valid_batches = len(valid_dataloader)
 
-    separator = construct_separator(train_config)
     classifier = construct_classifier(train_config)
     input_key = get_batch_input_key(train_config)
 
     # JTC: Should we still provide params with requires_grad=False here?
-    optimizer = get_optimizer(separator.parameters() + classifier.parameters(),
-                              train_config)
+    optimizer = get_optimizer(classifier.parameters(), train_config)
 
     # Set up loss functions
-    mixture_loss_fn = get_mixture_loss_function(train_config)
-    mixture_loss_weight = train_config["losses"]["mixture"]["weight"]
     # JTC: Look into BCEWithLogitsLoss, but for now just use BCELoss
     bce_loss_obj = nn.BCELoss()
     cls_loss_weight = train_config["losses"]["classification"]["weight"]
 
     # Set up history logging
     history_path = os.path.join("output_dir", "history.csv")
-    history_logger = CDSDHistoryLogger(history_path)
+    history_logger = ClassifierHistoryLogger(history_path)
 
     # Set up checkpoint paths
-    separator_best_ckpt_path = os.path.join(output_dir, "separator_best.pt")
     classifier_best_ckpt_path = os.path.join(output_dir, "classifier_best.pt")
-    separator_latest_ckpt_path = os.path.join(output_dir, "separator_latest.pt")
     classifier_latest_ckpt_path = os.path.join(output_dir, "classifier_latest.pt")
     optimizer_latest_ckpt_path = os.path.join(output_dir, "optimizer_latest.pt")
 
@@ -100,112 +93,50 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
     num_epochs = train_config["training"]["num_epochs"]
     for epoch in range(num_epochs):
         print("=============== Epoch {}/{} =============== ".format(epoch, num_epochs))
-        accum_train_mix_loss = 0.0
-        accum_train_cls_loss = 0.0
-        accum_train_total_loss = 0.0
-        accum_valid_mix_loss = 0.0
-        accum_valid_cls_loss = 0.0
-        accum_valid_total_loss = 0.0
+        accum_train_loss = 0.0
+        accum_valid_loss = 0.0
 
         print(" **** Training ****")
         for batch in tqdm(train_dataloader, total=num_train_batches):
             x = batch[input_key]
             labels = batch["labels"]
+            output = classifier(x)
 
-            # Forward pass through separator
-            masks = separator(x)
-
-            # Pass reconstructed sources through classifier
-            train_cls_loss = None
-            for idx in range(NUM_CDSD_LABELS):
-                mask = masks[..., idx]
-                x_masked = x * mask
-                output = classifier(x_masked)
-
-                # Create target
-                target = torch.zeros_like(labels)
-                target[:, idx] = labels[:, idx]
-
-                # Accumulate classification loss for each source type
-                if train_cls_loss is None:
-                    train_cls_loss = bce_loss_obj(output, target)
-                else:
-                    train_cls_loss += bce_loss_obj(output, target)
-
-            assert train_cls_loss is not None
-
-            train_mix_loss = mixture_loss_fn(x, labels, masks)
-
-            train_total_loss = train_mix_loss * mixture_loss_weight + train_cls_loss * cls_loss_weight
-            train_total_loss.backward()
+            train_loss = bce_loss_obj(output, labels)
+            train_loss.backward()
             optimizer.step()
 
             # Accumulate loss for epoch
-            accum_train_mix_loss += train_mix_loss.item()
-            accum_train_cls_loss += train_cls_loss.item()
-            accum_train_total_loss += train_total_loss.item()
+            accum_train_loss += train_loss.item()
 
         # Evaluate on validation set
         print(" **** Validation ****")
         for batch in tqdm(valid_dataloader, total=num_valid_batches):
             x = batch[input_key]
             labels = batch["labels"]
+            output = classifier(x)
 
-            # Forward pass through separator
-            masks = separator(x)
-
-            # Pass reconstructed sources through classifier
-            valid_cls_loss = None
-            for idx in range(NUM_CDSD_LABELS):
-                mask = masks[..., idx]
-                x_masked = x * mask
-                output = classifier(x_masked)
-
-                # Create target
-                target = torch.zeros_like(labels)
-                target[:, idx] = labels[:, idx]
-
-                # Accumulate classification loss for each source type
-                if valid_cls_loss is None:
-                    valid_cls_loss = bce_loss_obj(output, target)
-                else:
-                    valid_cls_loss += bce_loss_obj(output, target)
-
-            assert valid_cls_loss is not None
-
-            valid_mix_loss = mixture_loss_fn(x, labels, masks)
-            valid_total_loss = valid_mix_loss * mixture_loss_weight + valid_cls_loss * cls_loss_weight
+            valid_loss = bce_loss_obj(output, labels)
 
             # Accumulate loss for epoch
-            accum_valid_mix_loss += valid_mix_loss.item()
-            accum_valid_cls_loss += valid_cls_loss.item()
-            accum_valid_total_loss += valid_total_loss.item()
+            accum_valid_loss += valid_loss.item()
 
-        train_mix_loss = accum_train_mix_loss / num_train_batches
-        train_cls_loss = accum_train_cls_loss / num_train_batches
-        train_tot_loss = accum_train_total_loss / num_train_batches
-        valid_mix_loss = accum_valid_mix_loss / num_valid_batches
-        valid_cls_loss = accum_valid_cls_loss / num_valid_batches
-        valid_tot_loss = accum_valid_total_loss / num_valid_batches
-        history_logger.log(epoch, train_mix_loss, train_cls_loss, train_tot_loss,
-                           valid_mix_loss, valid_cls_loss, valid_tot_loss)
+        train_loss = accum_train_loss / num_train_batches
+        valid_loss = accum_valid_loss / num_valid_batches
+        history_logger.log(epoch, train_loss, valid_loss)
 
         # PyTorch saving recommendations: https://stackoverflow.com/a/49078976
         # Checkpoint every N epochs
         if epoch % checkpoint_interval:
-            separator_ckpt_path = os.path.join(output_dir, "separator_epoch-{}.pt".format(epoch))
             classifier_ckpt_path = os.path.join(output_dir, "classifier_epoch-{}.pt".format(epoch))
-            torch.save(separator.state_dict(), separator_ckpt_path)
             torch.save(classifier.state_dict(), classifier_ckpt_path)
 
         # Save best model (w.r.t. validation loss)
         if history_logger.valid_loss_improved():
             # Checkpoint best model
-            torch.save(separator.state_dict(), separator_best_ckpt_path)
             torch.save(classifier.state_dict(), classifier_best_ckpt_path)
 
         # Always save latest states
-        torch.save(separator.state_dict(), separator_latest_ckpt_path)
         torch.save(classifier.state_dict(), classifier_latest_ckpt_path)
         torch.save(optimizer.state_dict(), optimizer_latest_ckpt_path)
 
