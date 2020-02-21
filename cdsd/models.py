@@ -58,7 +58,7 @@ class Classifier(nn.Module):
         self.transform = transform
 
     # JTC: Classifiers are expected to output some kind of frame-wise estimate
-    def _forward_frame(self, x):
+    def forward_frame(self, x):
         raise NotImplementedError()
 
     # JTC: Framewise estiamtes are pooled in some fashion, e.g. max pooling
@@ -76,8 +76,9 @@ class Classifier(nn.Module):
 
 class BLSTMSpectrogramClassifier(Classifier):
     def __init__(self, n_bins, n_classes, n_layers=2, hidden_dim=100, bias=False,
-                 pooling='max'):
-        super(BLSTMSpectrogramClassifier, self).__init__(n_classes, pooling)
+                 pooling='max', transform=None):
+        super(BLSTMSpectrogramClassifier, self).__init__(n_classes, pooling,
+                                                         transform=transform)
         self.blstm = nn.LSTM(input_size=n_bins,
                              hidden_size=hidden_dim,
                              num_layers=n_layers,
@@ -89,14 +90,14 @@ class BLSTMSpectrogramClassifier(Classifier):
 
         # TODO: Implement Autopool
 
-    def _forward_frame(self, x):
+    def forward_frame(self, x):
         x = x.transpose(2, 1)
         x, _ = self.blstm(x)
         x = torch.sigmoid(self.fc(x))
         return x
 
 
-def construct_models(train_config):
+def construct_separator(train_config):
     ## Build separator
     separator_config = train_config["separator"]
 
@@ -109,7 +110,10 @@ def construct_models(train_config):
                                               **separator_config["parameters"])
     else:
         raise ValueError("Invalid separator model type: {}".format(separator_config["model"]))
+    return separator
 
+
+def construct_classifier(train_config):
     ## Build classifier
     classifier_config = train_config["classifier"]
 
@@ -132,4 +136,4 @@ def construct_models(train_config):
         for param in classifier.parameters():
             param.requires_grad = False
 
-    return separator, classifier
+    return classifier
