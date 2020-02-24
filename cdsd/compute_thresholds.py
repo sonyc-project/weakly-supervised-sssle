@@ -5,7 +5,7 @@ import sys
 import numpy as np
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from .data import get_data_transforms, get_batch_input_key, SONYCUSTDataset
+from .data import get_data_transforms, get_batch_input_key, CDSDDataset
 from .models import construct_classifier
 from sklearn.metrics import f1_score
 
@@ -21,12 +21,6 @@ def parse_arguments(args):
                         type=str,
                         help='Path to training configuration JSON file')
 
-    parser.add_argument('ust_annotation_path', type=str,
-                        help='Path to SONYC-UST annotation file.')
-
-    parser.add_argument('ust_taxonomy_path', type=str,
-                        help='Path to SONYC-UST taxonomy file.')
-
     parser.add_argument('output_dir',
                         type=str,
                         help='Path where outputs will be saved')
@@ -38,8 +32,8 @@ def parse_arguments(args):
     return parser.parse_args(args)
 
 
-def estimate_class_weights(root_data_dir, annotation_path, taxonomy_path, train_config,
-                           output_dir, num_data_workers=1):
+def estimate_class_weights(root_data_dir, train_config, output_dir,
+                           num_data_workers=1):
 
     # Create output directory
     os.makedirs(output_dir)
@@ -52,11 +46,9 @@ def estimate_class_weights(root_data_dir, annotation_path, taxonomy_path, train_
 
     input_transform = get_data_transforms(train_config)
 
-    valid_dataset = SONYCUSTDataset(root_data_dir,
-                                    annotation_path,
-                                    taxonomy_path,
-                                    subset='validate',
-                                    transform=input_transform)
+    valid_dataset = CDSDDataset(root_data_dir,
+                                subset='validate',
+                                transform=input_transform)
     valid_dataloader = DataLoader(valid_dataset,
                                   batch_size=train_config["training"]["batch_size"],
                                   shuffle=True, pin_memory=True,
@@ -115,7 +107,5 @@ if __name__ == "__main__":
 
     estimate_class_weights(root_data_dir=args.root_data_dir,
                            train_config=train_config,
-                           annotation_path=args.ust_annotation_path,
-                           taxonomy_path=args.ust_taxonomy_path,
                            output_dir=args.output_dir,
                            num_data_workers=args.num_data_workers)
