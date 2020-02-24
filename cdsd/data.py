@@ -6,127 +6,54 @@ import jams
 import torch
 import torchaudio
 import torchvision
-from .preprocess_us8k import US8K_TO_SONYCUST_MAP
 from torch.utils.data import Dataset
 from torchaudio.transforms import AmplitudeToDB, MelSpectrogram, MelScale
-from torch.utils.data import DataLoader
 
 # Note: if we need to use pescador, see https://github.com/pescadores/pescador/issues/133
 # torchaudio.transforms.MelSpectrogram <- Note that this uses "HTK" mels
 
-EXP_DUR = 10.0
 SAMPLE_RATE = 16000
-CDSD_LABELS = sorted([x for x in US8K_TO_SONYCUST_MAP.values() if x is not None])
-NUM_CDSD_LABELS = len(CDSD_LABELS)
-CDSD_LABEL_TO_IDX = {v: k for k, v in enumerate(CDSD_LABELS)}
-
-
-class SONYCUSTDataset(Dataset):
-    def __init__(self, root_dir, annotation_path, taxonomy_path, subset='train', transform=None):
-        if subset not in ('train', 'validate', 'test', 'verified'):
-            raise ValueError('Invalid subset: {}'.format(subset))
-        self.transform = transform
-        self.root_dir = root_dir
-        self.data_dir = os.path.join(root_dir, subset)
-        self.annotation_path = annotation_path
-        self.taxonomy_path = taxonomy_path
-        self.subset = subset
-
-        # Load taxonomy and get labels
-        with open(self.taxonomy_path, 'r') as f:
-            self.taxonomy = yaml.load(f)
-        self.labels = [v for v in self.taxonomy['coarse'].values()]
-        self.label_keys = ["{}_{}_presence".format(k, v)
-                           for k, v in self.taxonomy['coarse'].items()]
-
-        # Load annotations
-        ann_df = pd.read_csv(self.annotation_path).sort_values('audio_filename')
-        data = ann_df[['split', 'audio_filename']].drop_duplicates().sort_values('audio_filename')
-
-        # Get files for this subset
-        self.file_list = []
-        for idx, (_, row) in enumerate(data.iterrows()):
-            if (subset != 'verified' and row['split'] == subset) or (subset == 'verified' and row['split'] in ('validate', 'test')):
-                self.file_list.append(row['audio_filename'])
-
-        # Get targets for each file
-        # TODO: Can do this more efficiently without looping twice
-        target_list = []
-        for filename in self.file_list:
-            file_df = ann_df[
-                ann_df['audio_filename'] == filename]
-            target = []
-
-            for label_key in self.label_keys:
-                count = 0
-
-                for _, row in file_df.iterrows():
-                    if int(row['annotator_id']) == 0:
-                        # If we have a validated annotation, just use that
-                        count = row[label_key]
-                        break
-                    else:
-                        count += row[label_key]
-
-                if count > 0:
-                    target.append(1.0)
-                else:
-                    target.append(0.0)
-
-            target_list.append(target)
-
-        self.targets = np.array(target_list)
-
-    def __len__(self):
-        return len(self.file_list)
-
-    def __getitem__(self, idx):
-        if torch.is_tensor(idx):
-            idx = idx.item()
-
-        fname = self.file_list[idx]
-        labels = torch.from_numpy(self.targets[idx])
-
-        audio_path = os.path.join(self.data_dir, fname)
-        waveform, sr = torchaudio.load(audio_path)
-
-        if sr != SAMPLE_RATE:
-            raise ValueError('Expected sample rate of {} Hz, but got {} Hz ({})'.format(SAMPLE_RATE, sr, audio_path))
-
-        sample = {
-            'waveform': waveform,
-            'sample_rate': sr,
-            'labels': labels
-        }
-
-        if self.transform is not None:
-            sample = self.transform(sample)
-
-        return sample
 
 
 class CDSDDataset(Dataset):
     def __init__(self, root_dir, subset='train', transform=None):
-        if subset not in ('train', 'valid', 'test'):
+        subset_names = ('train', 'valid', 'test')
+        if subset not in subset_names:
             raise ValueError('Invalid subset: {}'.format(subset))
 
         self.transform = transform
         self.root_dir = root_dir
         self.data_dir = os.path.join(root_dir, subset)
         self.files = []
-        for fname in os.listdir(self.data_dir):
-            # Only look at audio files
-            if not fname.endswith('.wav'):
-                continue
+        self.subset = subset
 
-            name = os.path.splitext(fname)[0]
+        labels = set()
+        # Note, subset is being overwritten here
+        for subset in subset_names:
+            data_dir = os.path.join(root_dir, subset)
+            for fname in os.listdir(data_dir):
+                # Only look at audio files
+                if not fname.endswith('.wav'):
+                    continue
 
-            # Make sure there's a corresponding JAMS file
-            jams_path = os.path.join(self.data_dir, name + '.jams')
-            if not os.path.exists(jams_path):
-                raise ValueError('Missing JAMS file for {} in {}'.format(fname, self.data_dir))
+                # Make sure there's a corresponding JAMS file
+                name = os.path.splitext(fname)[0]
+                jams_path = os.path.join(self.root_dir, subset, name + '.jams')
+                if not os.path.exists(jams_path):
+                    raise ValueError('Missing JAMS file for {} in {}'.format(fname, self.data_dir))
 
-            self.files.append(name)
+                jams_obj = jams.load(jams_path)
+                # Aggregate labels
+                for ann in jams_obj.annotations[0].data:
+                    if ann.value['role'] == "foreground":
+                        labels.add(ann.value['label'])
+
+                if subset == self.subset:
+                    self.files.append(name)
+
+        self.labels = sorted(labels)
+        self.label_to_idx = {label: idx for idx, label in enumerate(self.labels)}
+        self.num_labels = len(self.labels)
 
     def __len__(self):
         return len(self.files)
@@ -146,21 +73,23 @@ class CDSDDataset(Dataset):
 
         jams_obj = jams.load(jams_path)
 
-        labels = torch.zeros(NUM_CDSD_LABELS)
-        for ann in jams_obj.annotations:
-            if ann.value.role == "foreground":
-                label = ann.value.label
-                idx = CDSD_LABEL_TO_IDX[label]
+        labels = torch.zeros(self.num_labels)
+        for ann in jams_obj.annotations[0].data:
+            if ann.value['role'] == "foreground":
+                label = ann.value['label']
+                idx = self.label_to_idx[label]
                 labels[idx] = 1.0
 
+        #audio_data = waveform
+        # TODO: TEMPORARY HACK
+        audio_data = waveform[0, :64000]
+        if self.transform is not None:
+            audio_data = self.transform(audio_data)
+
         sample = {
-            'waveform': waveform,
-            'sample_rate': sr,
+            'audio_data': audio_data,
             'labels': labels
         }
-
-        if self.transform is not None:
-            sample = self.transform(sample)
 
         return sample
 
@@ -183,18 +112,3 @@ def get_data_transforms(train_config):
         return torchvision.transforms.Compose(transform_list)
 
     return None
-
-
-def get_batch_input_key(train_config):
-    input_key = "waveform"
-    for transform_config in train_config.get("input_transform", []):
-        transform_name = transform_config["name"]
-        if transform_name == "Spectrogram":
-            input_key = "specgram"
-        elif transform_name == "MelScale" and input_key == "specgram":
-            input_key = "mel_specgram"
-        elif transform_name == "MelSpectrogram":
-            input_key = "mel_specgram"
-
-    return input_key
-
