@@ -1,0 +1,44 @@
+{
+    "input_transforms": [
+        {
+            "name": "MelSpectrogram",
+            "parameters": {
+                "n_mels": 40,
+                "n_fft": 512,
+                "win_length": null,
+                "hop_length": 128
+            }
+        }
+    ],
+
+    "classifier": {
+        "model": "BLSTMSpectrogramClassifier",
+        "parameters": {
+            "n_bins": 40,
+            "n_layers": 2,
+            "hidden_dim": 100,
+            "bias": true,
+            "pooling": "max"
+        },
+        "input_transforms": [
+            {
+                "name": "AmplitudeToDB",
+                "parameters": {}
+            }
+        ],
+
+        "trainable": true
+    },
+
+    "training": {
+        "batch_size": 32,
+        "num_epochs": 50,
+        "optimizer": {
+            "name": "Adam",
+            "parameters": {
+                "lr": 0.0001
+            }
+        }
+    }
+
+}
