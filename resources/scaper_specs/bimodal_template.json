@@ -2,6 +2,7 @@
     "spec_label": "bimodal",
     "ref_db": -50,
     "duration": 10.0,
+    "sample_rate": 16000,
 
     "num_events": {
         "dist": "ztpoisson",
@@ -62,7 +63,7 @@
         "min": 6,
         "max": 30
     },
-    "pitch": {
+    "pitch_shift": {
         "dist": "uniform",
         "min": -3.0,
         "max": 3.0
