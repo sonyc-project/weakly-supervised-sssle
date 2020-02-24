@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.parallel
 import torch.utils.data
-from .data import get_data_transforms
+from data import get_data_transforms
 
 
 class Separator(nn.Module):
@@ -65,10 +65,10 @@ class Classifier(nn.Module):
     def forward(self, x):
         if self.transform is not None:
             x = self.transform(x)
-        x = self._forward_frame(x)
+        x = self.forward_frame(x)
         if self.pooling == 'max':
             # Take the max over the time dimension
-            _, x = x.max(dim=1)
+            x, _ = x.max(dim=1)
         else:
             raise ValueError('Invalid pooling type: {}'.format(self.pooling))
         return x
@@ -91,13 +91,17 @@ class BLSTMSpectrogramClassifier(Classifier):
         # TODO: Implement Autopool
 
     def forward_frame(self, x):
+        # Remove channel dimension
+        x = x.squeeze(dim=1)
+        # Reshape since PyTorch convention is for time to be the last dimension,
+        # but we need to operate on the channel dimension
         x = x.transpose(2, 1)
         x, _ = self.blstm(x)
         x = torch.sigmoid(self.fc(x))
         return x
 
 
-def construct_separator(train_config):
+def construct_separator(train_config, dataset):
     ## Build separator
     separator_config = train_config["separator"]
 
@@ -106,14 +110,15 @@ def construct_separator(train_config):
 
     # Construct separator
     if separator_config["model"] == "BLSTMSpectrogramSeparator":
-        separator = BLSTMSpectrogramSeparator(transform=separator_input_transform,
+        separator = BLSTMSpectrogramSeparator(n_classes=dataset.num_labels,
+                                              transform=separator_input_transform,
                                               **separator_config["parameters"])
     else:
         raise ValueError("Invalid separator model type: {}".format(separator_config["model"]))
     return separator
 
 
-def construct_classifier(train_config):
+def construct_classifier(train_config, dataset):
     ## Build classifier
     classifier_config = train_config["classifier"]
 
@@ -121,8 +126,9 @@ def construct_classifier(train_config):
     classifier_input_transform = get_data_transforms(classifier_config)
 
     # Construct classifier
-    if classifier_config["model"] == "BLSTMSpectrogramSeparator":
-        classifier = BLSTMSpectrogramClassifier(transform=classifier_input_transform,
+    if classifier_config["model"] == "BLSTMSpectrogramClassifier":
+        classifier = BLSTMSpectrogramClassifier(n_classes=dataset.num_labels,
+                                                transform=classifier_input_transform,
                                                 **classifier_config["parameters"])
     else:
         raise ValueError("Invalid classifier model type: {}".format(classifier_config["model"]))
