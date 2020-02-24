@@ -6,10 +6,10 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from .data import get_data_transforms, get_batch_input_key, CDSDDataset
-from .models import construct_classifier
-from .utils import get_optimizer
-from .logs import ClassifierHistoryLogger
+from data import get_data_transforms, CDSDDataset
+from models import construct_classifier
+from utils import get_optimizer
+from logs import ClassifierHistoryLogger
 
 
 def parse_arguments(args):
@@ -40,7 +40,7 @@ def parse_arguments(args):
 
 def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoint_interval=10):
     # Create output directory
-    os.makedirs(output_dir)
+    os.makedirs(output_dir, exist_ok=True)
     config_path = os.path.join(output_dir, "config.json")
     with open(config_path, 'w') as f:
         json.dump({"root_data_dir": root_data_dir,
@@ -67,8 +67,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
                                   num_workers=num_data_workers)
     num_valid_batches = len(valid_dataloader)
 
-    classifier = construct_classifier(train_config)
-    input_key = get_batch_input_key(train_config)
+    classifier = construct_classifier(train_config, dataset=train_dataset)
 
     # JTC: Should we still provide params with requires_grad=False here?
     optimizer = get_optimizer(classifier.parameters(), train_config)
@@ -76,10 +75,9 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
     # Set up loss functions
     # JTC: Look into BCEWithLogitsLoss, but for now just use BCELoss
     bce_loss_obj = nn.BCELoss()
-    cls_loss_weight = train_config["losses"]["classification"]["weight"]
 
     # Set up history logging
-    history_path = os.path.join("output_dir", "history.csv")
+    history_path = os.path.join(output_dir, "history.csv")
     history_logger = ClassifierHistoryLogger(history_path)
 
     # Set up checkpoint paths
@@ -92,13 +90,13 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
 
     num_epochs = train_config["training"]["num_epochs"]
     for epoch in range(num_epochs):
-        print("=============== Epoch {}/{} =============== ".format(epoch, num_epochs))
+        print("=============== Epoch {}/{} =============== ".format(epoch+1, num_epochs))
         accum_train_loss = 0.0
         accum_valid_loss = 0.0
 
         print(" **** Training ****")
         for batch in tqdm(train_dataloader, total=num_train_batches):
-            x = batch[input_key]
+            x = batch["audio_data"]
             labels = batch["labels"]
             output = classifier(x)
 
@@ -112,7 +110,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         # Evaluate on validation set
         print(" **** Validation ****")
         for batch in tqdm(valid_dataloader, total=num_valid_batches):
-            x = batch[input_key]
+            x = batch["audio_data"]
             labels = batch["labels"]
             output = classifier(x)
 
@@ -155,4 +153,4 @@ if __name__ == "__main__":
           train_config=train_config,
           output_dir=args.output_dir,
           num_data_workers=args.num_data_workers,
-          checkpoint_interval=args.checkpooint_interval)
+          checkpoint_interval=args.checkpoint_interval)

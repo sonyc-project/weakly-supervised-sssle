@@ -6,11 +6,11 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from .data import get_data_transforms, get_batch_input_key, CDSDDataset, NUM_CDSD_LABELS
-from .models import construct_separator, construct_classifier
-from .losses import get_mixture_loss_function
-from .utils import get_optimizer
-from .logs import CDSDHistoryLogger
+from data import get_data_transforms, get_batch_input_key, CDSDDataset
+from models import construct_separator, construct_classifier
+from losses import get_mixture_loss_function
+from utils import get_optimizer
+from logs import CDSDHistoryLogger
 
 
 def parse_arguments(args):
@@ -41,7 +41,7 @@ def parse_arguments(args):
 
 def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoint_interval=10):
     # Create output directory
-    os.makedirs(output_dir)
+    os.makedirs(output_dir, exist_ok=True)
     config_path = os.path.join(output_dir, "config.json")
     with open(config_path, 'w') as f:
         json.dump({"root_data_dir": root_data_dir,
@@ -68,9 +68,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
                                   num_workers=num_data_workers)
     num_valid_batches = len(valid_dataloader)
 
-    separator = construct_separator(train_config)
-    classifier = construct_classifier(train_config)
-    input_key = get_batch_input_key(train_config)
+    separator = construct_separator(train_config, dataset=train_dataset)
+    classifier = construct_classifier(train_config, dataset=train_dataset)
 
     # JTC: Should we still provide params with requires_grad=False here?
     optimizer = get_optimizer(separator.parameters() + classifier.parameters(),
@@ -109,7 +108,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
 
         print(" **** Training ****")
         for batch in tqdm(train_dataloader, total=num_train_batches):
-            x = batch[input_key]
+            x = batch["audio_data"]
             labels = batch["labels"]
 
             # Forward pass through separator
@@ -117,7 +116,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
 
             # Pass reconstructed sources through classifier
             train_cls_loss = None
-            for idx in range(NUM_CDSD_LABELS):
+            for idx in range(train_dataset.num_labels):
                 mask = masks[..., idx]
                 x_masked = x * mask
                 output = classifier(x_masked)
@@ -148,7 +147,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         # Evaluate on validation set
         print(" **** Validation ****")
         for batch in tqdm(valid_dataloader, total=num_valid_batches):
-            x = batch[input_key]
+            x = batch["audio_data"]
             labels = batch["labels"]
 
             # Forward pass through separator
@@ -156,7 +155,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
 
             # Pass reconstructed sources through classifier
             valid_cls_loss = None
-            for idx in range(NUM_CDSD_LABELS):
+            for idx in range(train_dataset.num_labels):
                 mask = masks[..., idx]
                 x_masked = x * mask
                 output = classifier(x_masked)
@@ -224,4 +223,4 @@ if __name__ == "__main__":
           train_config=train_config,
           output_dir=args.output_dir,
           num_data_workers=args.num_data_workers,
-          checkpoint_interval=args.checkpooint_interval)
+          checkpoint_interval=args.checkpoint_interval)
