@@ -7,10 +7,6 @@ import oyaml as yaml
 import jams
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from tqdm import tqdm
-from .preprocess_us8k import US8K_TO_SONYCUST_MAP
-
-
-LABELS = sorted([x for x in US8K_TO_SONYCUST_MAP.values() if x is not None])
 
 
 def parse_arguments(args):
@@ -32,25 +28,33 @@ def parse_arguments(args):
 
 
 def run(annotation_path, taxonomy_path, data_dir, out_dir, use_symlinks=False):
-    ann_df = pd.read_csv(annotation_path)
-    # Restrict to verified annotations
-    ann_df = ann_df[ann_df["annotator_id"] == 0].sort_values('audio_filename')
-    ann_df = ann_df[['split', 'audio_filename']].drop_duplicates()
+    ann_df = pd.read_csv(annotation_path).sort_values('audio_filename')
 
-    os.makedirs(out_dir, exist_ok=True)
+    file_list = ann_df['audio_filename'].unique().tolist()
 
     # Load taxonomy
     with open(taxonomy_path, 'r') as f:
         taxonomy = yaml.load(f)
-    label_to_id = {v: k for k, v in taxonomy['coarse']}
+    labels = [v for v in taxonomy['coarse'].values()]
+    label_to_id = {v: k for k, v in taxonomy['coarse'].items()}
 
-    for _, row in tqdm(ann_df.iterrows()):
-        filename = row['audio_filename']
-        split_str = row['split']
+    os.makedirs(out_dir, exist_ok=True)
 
+    # Get targets for each file
+    for filename in tqdm(file_list):
+        # Get all annotation rows pertaining to this file
+        file_df = ann_df[ann_df['audio_filename'] == filename]
+        # Get the subset split name
+        split_str = file_df.iloc[0]['split']
+        if split_str == 'validate':
+            split_str = 'valid'
+
+        # Deal with input and output paths
+        out_subset_dir = os.path.join(out_dir, split_str)
+        os.makedirs(out_subset_dir, exist_ok=True)
         src_audio_path = os.path.join(data_dir, split_str, filename)
-        dst_audio_path = os.path.join(out_dir, filename)
-        dst_jams_path = os.path.join(out_dir, os.path.splitext(filename)[0] + '.jams')
+        dst_audio_path = os.path.join(out_subset_dir, filename)
+        dst_jams_path = os.path.join(out_subset_dir, os.path.splitext(filename)[0] + '.jams')
 
         # Copy audio
         if not use_symlinks:
@@ -86,11 +90,24 @@ def run(annotation_path, taxonomy_path, data_dir, out_dir, use_symlinks=False):
                    },
                    confidence=1.0)
 
-        # Create a new event for all of the labels of interest
-        for label in LABELS:
+        for label in labels:
             label_id = label_to_id[label]
             presence_key = "{}_{}_presence".format(label_id, label)
-            if row[presence_key]:
+
+            # Get presence across all annotators (unless verified)
+            count = 0
+            for _, row in file_df.iterrows():
+                if int(row['annotator_id']) == 0:
+                    # If we have a validated annotation, just use that
+                    count = row[presence_key]
+                    break
+                else:
+                    # Otherwise use minority vote
+                    count += row[presence_key]
+
+            # If verified positive, or at least one crowdsourced positive, add event
+            if count > 0:
+                # Add event
                 ann.append(time=0.0,
                            duration=duration,
                            value={
