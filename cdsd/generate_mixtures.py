@@ -23,6 +23,9 @@ def positive_int(value):
 
 def get_distribution_tuple(dist):
     """Return distribution tuple from a distribution dictionary"""
+    if not dist:
+        return None
+
     dist_type = dist['dist']
 
     if dist_type == 'const':
@@ -79,6 +82,9 @@ def sample_ztpoisson(lmbda):
 def sample_distribution_tuple(dist_list):
     """Sample a distribution tuple from a list of distribution dictionaries (or a single distribution)"""
     # If there is just a single element, no need to sample
+    if not dist_list:
+        return None
+
     if type(dist_list) == dict:
         return get_distribution_tuple(dist_list)
 
@@ -110,29 +116,56 @@ def run(fg_folder, bg_folder, scaper_spec_path, n_soundscapes, out_folder, exp_l
         json.dump(gen_params, f)
 
     # create a scaper that will be used below
-    sc = scaper.Scaper(scaper_spec['duration'], fg_folder, bg_folder, random_state=random_state)
-    sc.protected_labels = []
+    sc = scaper.Scaper(scaper_spec['duration'],
+                       fg_folder,
+                       bg_folder,
+                       protected_labels=scaper_spec.get('protected_labels', []),
+                       random_state=random_state)
+
+    sc.sr = scaper_spec['sample_rate']
     sc.ref_db = scaper_spec['ref_db']
+
+    # save generation params
+    gen_params = {
+        'fg_folder': fg_folder,
+        'bg_folder': bg_folder,
+        'scaper_spec_path': scaper_spec_path,
+        'n_soundscapes': n_soundscapes,
+        'out_folder': out_folder,
+        'exp_label': exp_label,
+        'random_state': random_state,
+        'fg_labels': sc.fg_labels,
+        'bg_labels': sc.bg_labels
+    }
+
+    gen_params_path = os.path.join(out_folder, "soundscape_gen_params_{}_{}.json".format(exp_label, scaper_spec['spec_label']))
+    with open(gen_params_path, 'w') as f:
+        json.dump(gen_params, f)
+
 
     print('Generating soundscapes.')
     for n in tqdm(range(n_soundscapes), total=n_soundscapes):
         # reset the event specifications for foreground and background at the
         # beginning of each loop to clear all previously added events
-        sc.reset_bg_spec()
-        sc.reset_fg_spec()
+        sc.reset_bg_event_spec()
+        sc.reset_fg_event_spec()
 
         # sample distributions for background parameters
         bg_label = sample_distribution_tuple(scaper_spec['background_label'])
-        bg_source_file = sample_distribution_tuple(scaper_spec['background_source_file'])
-        bg_source_time = sample_distribution_tuple(scaper_spec['background_source_time'])
 
-        # add background
-        sc.add_background(label=bg_label,
-                          source_file=bg_source_file,
-                          source_time=bg_source_time)
+        if bg_label:
+            bg_source_file = sample_distribution_tuple(scaper_spec['background_source_file'])
+            bg_source_time = sample_distribution_tuple(scaper_spec['background_source_time'])
+
+            # add background
+            sc.add_background(label=bg_label,
+                              source_file=bg_source_file,
+                              source_time=bg_source_time)
 
         # add random number of foreground events
-        if scaper_spec['num_events']['dist'] == 'uniform':
+        if scaper_spec['num_events'] is None:
+            n_events = 0
+        elif scaper_spec['num_events']['dist'] == 'uniform':
             n_events = np.random.randint(scaper_spec['num_events']['min'],
                                          scaper_spec['num_events']['max'] + 1)
         elif scaper_spec['num_events']['dist'] == 'ztpoisson':
@@ -161,8 +194,8 @@ def run(fg_folder, bg_folder, scaper_spec_path, n_soundscapes, out_folder, exp_l
                          time_stretch=time_stretch)
 
         # generate
-        audiofile = os.path.join(out_folder, "soundscape_{}_{}{:d}.wav".format(exp_label, scaper_spec['spec_label'], n))
-        jamsfile = os.path.join(out_folder, "soundscape_{}_{}{:d}.jams".format(exp_label, scaper_spec['spec_label'], n))
+        audiofile = os.path.join(out_folder, "soundscape_{}_{}_{:d}.wav".format(exp_label, scaper_spec['spec_label'], n))
+        jamsfile = os.path.join(out_folder, "soundscape_{}_{}_{:d}.jams".format(exp_label, scaper_spec['spec_label'], n))
 
         # TODO: If we want we can parameterize the other arguments of sc.generate at some point...
         sc.generate(audiofile, jamsfile,
@@ -170,7 +203,8 @@ def run(fg_folder, bg_folder, scaper_spec_path, n_soundscapes, out_folder, exp_l
                     allow_repeated_source=scaper_spec['allow_repeated_source'],
                     reverb=scaper_spec['reverb'],
                     disable_sox_warnings=True,
-                    no_audio=False)
+                    no_audio=False,
+                    save_isolated_events=True)
 
 
 def parse_arguments(args):
