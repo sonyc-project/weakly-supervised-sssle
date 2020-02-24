@@ -46,28 +46,31 @@ def parse_arguments(args):
                         help='Path to UrbanSound8K dataset.')
     parser.add_argument('out_folder', type=str,
                         help='Output directory where audio files will be saved.')
+    parser.add_argument('--ust-mapping', action='store_true',
+                        help='If true, uses SONYC-UST mappings.')
     parser.add_argument('--use-symlinks', action='store_true',
                         help='If true, create symlinks to audio files to avoid copying audio.')
 
     return parser.parse_args(args)
 
 
-def run(us8k_dir, out_dir, use_symlinks=False):
-    metadata_path = os.path.join(us8k_dir, 'metadata', 'UrbanSound8k.csv')
+def run(us8k_dir, out_dir, ust_mapping=False, use_symlinks=False):
+    metadata_path = os.path.join(us8k_dir, 'metadata', 'UrbanSound8K.csv')
     df = pd.read_csv(metadata_path)
 
     train_dir = os.path.join(out_dir, 'train')
     valid_dir = os.path.join(out_dir, 'valid')
     test_dir = os.path.join(out_dir, 'test')
 
-    # Create all of the output directories
-    for subset_dir in (train_dir, valid_dir, test_dir):
-        for label in US8K_TO_SONYCUST_MAP.values():
-            if label is not None:
-                # Only create label directories for the labels that will be
-                # used
-                label_dir = os.path.join(subset_dir, label)
-                os.makedirs(label_dir, exist_ok=True)
+    if ust_mapping:
+        # Create all of the output directories
+        for subset_dir in (train_dir, valid_dir, test_dir):
+            for label in US8K_TO_SONYCUST_MAP.values():
+                if label is not None:
+                    # Only create label directories for the labels that will be
+                    # used
+                    label_dir = os.path.join(subset_dir, label)
+                    os.makedirs(label_dir, exist_ok=True)
 
     num_files = len(df)
     for _, row in tqdm(df.iterrows(), total=num_files):
@@ -88,7 +91,11 @@ def run(us8k_dir, out_dir, use_symlinks=False):
 
         # Map US8K label to SONYC-UST label
         us8k_label = US8K_LABELS[row['classID']]
-        label = US8K_TO_SONYCUST_MAP[us8k_label]
+
+        if ust_mapping:
+            label = US8K_TO_SONYCUST_MAP[us8k_label]
+        else:
+            label = us8k_label
 
         # Ignore "None" labels
         if label is None:
@@ -96,6 +103,10 @@ def run(us8k_dir, out_dir, use_symlinks=False):
         fname = row['slice_file_name']
         src_path = os.path.join(us8k_dir, 'audio', 'fold{}'.format(fold), fname)
         dst_path = os.path.join(subset_dir, label, fname)
+
+        if not ust_mapping:
+            # Make sure output dir exists
+            os.makedirs(os.path.dirname(dst_path), exist_ok=True)
 
         # Copy the file
         if not use_symlinks:
@@ -108,5 +119,6 @@ if __name__ == '__main__':
     args = parse_arguments(sys.argv[1:])
     run(us8k_dir=args.us8k_folder,
         out_dir=args.out_folder,
+        ust_mapping=args.ust_mapping,
         use_symlinks=args.use_symlinks)
 
