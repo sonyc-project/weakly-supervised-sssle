@@ -4,9 +4,10 @@ import json
 import sys
 import torch
 import torch.nn as nn
+from itertools import chain
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from data import get_data_transforms, get_batch_input_key, CDSDDataset
+from data import get_data_transforms, CDSDDataset
 from models import construct_separator, construct_classifier
 from losses import get_mixture_loss_function
 from utils import get_optimizer
@@ -72,7 +73,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
     classifier = construct_classifier(train_config, dataset=train_dataset)
 
     # JTC: Should we still provide params with requires_grad=False here?
-    optimizer = get_optimizer(separator.parameters() + classifier.parameters(),
+    optimizer = get_optimizer(chain(separator.parameters(), classifier.parameters()),
                               train_config)
 
     # Set up loss functions
@@ -83,7 +84,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
     cls_loss_weight = train_config["losses"]["classification"]["weight"]
 
     # Set up history logging
-    history_path = os.path.join("output_dir", "history.csv")
+    history_path = os.path.join(output_dir, "history.csv")
     history_logger = CDSDHistoryLogger(history_path)
 
     # Set up checkpoint paths
@@ -98,7 +99,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
 
     num_epochs = train_config["training"]["num_epochs"]
     for epoch in range(num_epochs):
-        print("=============== Epoch {}/{} =============== ".format(epoch, num_epochs))
+        print("=============== Epoch {}/{} =============== ".format(epoch + 1, num_epochs))
         accum_train_mix_loss = 0.0
         accum_train_cls_loss = 0.0
         accum_train_total_loss = 0.0

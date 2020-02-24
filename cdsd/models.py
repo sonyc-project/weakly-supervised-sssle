@@ -38,6 +38,8 @@ class BLSTMSpectrogramSeparator(Separator):
 
     def _forward(self, x):
         batch_size = len(x)
+        # Remove channel dimension
+        x = x.squeeze(dim=1)
         # Reshape since PyTorch convention is for time to be the last dimension,
         # but we need to operate on the channel dimension
         x = x.transpose(2, 1)
@@ -47,6 +49,9 @@ class BLSTMSpectrogramSeparator(Separator):
         x = torch.sigmoid(self.fc(x))
         # Reshape to (batch, n_steps, n_bins, n_classes)
         x = x.view(batch_size, -1, self.n_bins, self.n_classes)
+        # Swap frequence and time dims to adhere to PyTorch convention
+        x = x.transpose(2, 1)
+
         return x
 
 

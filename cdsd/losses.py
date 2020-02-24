@@ -1,17 +1,17 @@
 import torch
 import torch.nn.functional as F
-from .data import NUM_CDSD_LABELS
 from functools import partial
 
 
 def get_energy_terms(x, labels, masks):
     batch_size = len(x)
+    num_labels = labels.size()[-1]
 
     mix_energy = x.view(batch_size, -1)
     present_energy = torch.zeros_like(mix_energy)
     absent_energy = torch.zeros_like(mix_energy)
 
-    for idx in range(NUM_CDSD_LABELS):
+    for idx in range(num_labels):
         mask = masks[..., idx]
         x_masked = x * mask
 
