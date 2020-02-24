@@ -71,8 +71,8 @@ def estimate_class_weights(root_data_dir, train_config, class_thresholds, taxono
     total_frames = 0
     total_clips = 0
 
-    num_labels = len(taxonomy['coarse'])
-    class_labels = [taxonomy['coarse'][idx+1] for idx in range(num_labels)]
+    num_labels = train_dataset.num_labels
+    class_labels = train_dataset.labels
 
     # Convert class threshold dictionary to torch tensor
     class_thresholds = torch.FloatTensor([class_thresholds[label] for label in class_labels]).view(1, 1, -1)
