@@ -1,12 +1,12 @@
 {
     "input_transforms": [
         {
-            "name": "MelSpectrogram",
+            "name": "Spectrogram",
             "parameters": {
-                "n_mels": 40,
                 "n_fft": 512,
-                "win_length": null,
-                "hop_length": 128
+                "hop_length": 128,
+                "window_fn": "sqrt_hann_window",
+                "power": 1.0
             }
         }
     ],
@@ -16,11 +16,13 @@
         "input_transforms": [
             {
                 "name": "AmplitudeToDB",
-                "parameters": {}
+                "parameters": {
+                    "stype": "magnitude"
+                }
             }
         ],
         "parameters": {
-            "n_bins": 40,
+            "n_bins": 257,
             "n_layers": 3,
             "hidden_dim": 600,
             "bias": true
@@ -31,7 +33,7 @@
     "classifier": {
         "model": "BLSTMSpectrogramClassifier",
         "parameters": {
-            "n_bins": 40,
+            "n_bins": 257,
             "n_layers": 2,
             "hidden_dim": 100,
             "bias": true,
@@ -40,7 +42,9 @@
         "input_transforms": [
             {
                 "name": "AmplitudeToDB",
-                "parameters": {}
+                "parameters": {
+                    "stype": "magnitude"
+                }
             }
         ],
 
@@ -59,7 +63,7 @@
     },
 
     "training": {
-        "batch_size": 4,
+        "batch_size": 32,
         "num_epochs": 50,
         "optimizer": {
             "name": "Adam",
