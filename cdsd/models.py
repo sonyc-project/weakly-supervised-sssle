@@ -106,7 +106,7 @@ class BLSTMSpectrogramClassifier(Classifier):
         return x
 
 
-def construct_separator(train_config, dataset):
+def construct_separator(train_config, dataset, weights_path=None, require_init=False):
     ## Build separator
     separator_config = train_config["separator"]
 
@@ -120,10 +120,26 @@ def construct_separator(train_config, dataset):
                                               **separator_config["parameters"])
     else:
         raise ValueError("Invalid separator model type: {}".format(separator_config["model"]))
+
+    # Load pretrained model weights for separator if specified
+    weights_path = weights_path \
+                   or separator_config.get("best_checkpoint_path") \
+                   or separator_config.get("pretrained_path")
+    if weights_path:
+        separator.load_state_dict(torch.load(weights_path))
+        print("Loaded separator weights from {}".format(weights_path))
+    elif require_init:
+        raise ValueError("Requires separator weights to be specified.")
+
+    # Freeze classifier weights if specified
+    if not separator_config.get("trainable", True):
+        for param in separator.parameters():
+            param.requires_grad = False
+
     return separator
 
 
-def construct_classifier(train_config, dataset):
+def construct_classifier(train_config, dataset, weights_path=None, require_init=False):
     ## Build classifier
     classifier_config = train_config["classifier"]
 
@@ -139,11 +155,17 @@ def construct_classifier(train_config, dataset):
         raise ValueError("Invalid classifier model type: {}".format(classifier_config["model"]))
 
     # Load pretrained model weights for classifier if specified
-    if classifier_config.get("pretrained_path"):
-        classifier.load_state_dict(torch.load(classifier_config["pretrained_path"]))
+    weights_path = weights_path \
+                   or classifier_config.get("best_checkpoint_path") \
+                   or classifier_config.get("pretrained_path")
+    if weights_path:
+        classifier.load_state_dict(torch.load(weights_path))
+        print("Loaded classifier weights from {}".format(weights_path))
+    elif require_init:
+        raise ValueError("Requires classifier weights to be specified.")
 
     # Freeze classifier weights if specified
-    if not classifier_config["trainable"]:
+    if not classifier_config.get("trainable", True):
         for param in classifier.parameters():
             param.requires_grad = False
 
