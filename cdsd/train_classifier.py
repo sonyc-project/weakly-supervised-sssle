@@ -4,6 +4,7 @@ import json
 import sys
 import torch
 import torch.nn as nn
+from copy import deepcopy
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from data import get_data_transforms, CDSDDataset
@@ -41,12 +42,6 @@ def parse_arguments(args):
 def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoint_interval=10):
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
-    config_path = os.path.join(output_dir, "config.json")
-    with open(config_path, 'w') as f:
-        json.dump({"root_data_dir": root_data_dir,
-                   "output_dir": output_dir,
-                   "num_data_workers": num_data_workers,
-                   "train_config": train_config}, f)
 
     input_transform = get_data_transforms(train_config)
     batch_size = train_config["training"]["batch_size"]
@@ -84,6 +79,16 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
     classifier_best_ckpt_path = os.path.join(output_dir, "classifier_best.pt")
     classifier_latest_ckpt_path = os.path.join(output_dir, "classifier_latest.pt")
     optimizer_latest_ckpt_path = os.path.join(output_dir, "optimizer_latest.pt")
+
+    config_path = os.path.join(output_dir, "config.json")
+    with open(config_path, 'w') as f:
+        save_config = deepcopy(train_config)
+        save_config["root_data_dir"] = root_data_dir
+        save_config["output_dir"] = output_dir
+        save_config["num_data_workers"] = num_data_workers
+        save_config["classifier"]["best_checkpoint_path"] = classifier_best_ckpt_path
+        save_config["classifier"]["latest_checkpoint_path"] = classifier_latest_ckpt_path
+        json.dump(save_config, f)
 
     # TODO: Need to take care of making sure data/model is properly loaded on
     # target device

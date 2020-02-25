@@ -4,6 +4,7 @@ import json
 import sys
 import torch
 import torch.nn as nn
+from copy import deepcopy
 from itertools import chain
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -43,13 +44,6 @@ def parse_arguments(args):
 def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoint_interval=10):
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
-    config_path = os.path.join(output_dir, "config.json")
-    with open(config_path, 'w') as f:
-        json.dump({"root_data_dir": root_data_dir,
-                   "output_dir": output_dir,
-                   "num_data_workers": num_data_workers,
-                   "train_config": train_config}, f)
-
     input_transform = get_data_transforms(train_config)
     batch_size = train_config["training"]["batch_size"]
 
@@ -94,9 +88,20 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
     classifier_latest_ckpt_path = os.path.join(output_dir, "classifier_latest.pt")
     optimizer_latest_ckpt_path = os.path.join(output_dir, "optimizer_latest.pt")
 
+    config_path = os.path.join(output_dir, "config.json")
+    with open(config_path, 'w') as f:
+        save_config = deepcopy(train_config)
+        save_config["root_data_dir"] = root_data_dir
+        save_config["output_dir"] = output_dir
+        save_config["num_data_workers"] = num_data_workers
+        save_config["separator"]["best_path"] = separator_best_ckpt_path
+        save_config["separator"]["latest_path"] = separator_latest_ckpt_path
+        save_config["classifier"]["best_path"] = classifier_best_ckpt_path
+        save_config["classifier"]["latest_path"] = classifier_latest_ckpt_path
+        json.dump(save_config, f)
+
     # TODO: Need to take care of making sure data/model is properly loaded on
     # target device
-
     num_epochs = train_config["training"]["num_epochs"]
     for epoch in range(num_epochs):
         print("=============== Epoch {}/{} =============== ".format(epoch + 1, num_epochs))
