@@ -7,7 +7,8 @@ import torch
 import torchaudio
 import torchvision
 from torch.utils.data import Dataset
-from torchaudio.transforms import AmplitudeToDB, MelSpectrogram, MelScale
+from torchaudio.transforms import AmplitudeToDB, MelSpectrogram, MelScale, Spectrogram
+from utils import get_torch_window_fn
 
 # Note: if we need to use pescador, see https://github.com/pescadores/pescador/issues/133
 # torchaudio.transforms.MelSpectrogram <- Note that this uses "HTK" mels
@@ -16,7 +17,7 @@ SAMPLE_RATE = 16000
 
 
 class CDSDDataset(Dataset):
-    def __init__(self, root_dir, subset='train', transform=None):
+    def __init__(self, root_dir, subset='train', transform=None, load_separation_data=False):
         subset_names = ('train', 'valid', 'test')
         if subset not in subset_names:
             raise ValueError('Invalid subset: {}'.format(subset))
@@ -26,6 +27,7 @@ class CDSDDataset(Dataset):
         self.data_dir = os.path.join(root_dir, subset)
         self.files = []
         self.subset = subset
+        self.load_separation_data = load_separation_data
 
         labels = set()
         # Note, subset is being overwritten here
@@ -35,6 +37,13 @@ class CDSDDataset(Dataset):
                 # Only look at audio files
                 if not fname.endswith('.wav'):
                     continue
+
+                # If we are loading the separation data, only include the files
+                # that have separated sources
+                if load_separation_data:
+                    event_dir = os.path.join(self.data_dir, fname + "_events")
+                    if not os.path.isdir(event_dir):
+                        continue
 
                 # Make sure there's a corresponding JAMS file
                 name = os.path.splitext(fname)[0]
@@ -80,9 +89,10 @@ class CDSDDataset(Dataset):
                 idx = self.label_to_idx[label]
                 labels[idx] = 1.0
 
-        #audio_data = waveform
         # TODO: TEMPORARY HACK
-        audio_data = waveform[0, :64000]
+        waveform_len = 64000
+        waveform = waveform[:, :waveform_len]
+        audio_data = waveform
         if self.transform is not None:
             audio_data = self.transform(audio_data)
 
@@ -90,6 +100,37 @@ class CDSDDataset(Dataset):
             'audio_data': audio_data,
             'labels': labels
         }
+
+        if self.load_separation_data:
+            # Include mixture and separated source waveforms
+            sample['mixture_waveform'] = waveform
+
+            event_dir = os.path.join(self.data_dir, file + "_events")
+            if not os.path.isdir(event_dir):
+                print("Could not find events for {} in {}".format(file, self.data_dir))
+
+            event_waveforms = {label + "_waveform": torch.zeros(1, waveform_len) for label in self.labels}
+
+            # Accumulate event waveforms by label
+            for event_fname in os.listdir(event_dir):
+                split_idx = event_fname.index('_')
+                prefix = event_fname[:split_idx]
+                label = event_fname[split_idx+1:]
+
+                # If if background is one of the labels, accumulate separately
+                if prefix.startswith('background'):
+                    if "background" in self.labels:
+                        label = "background"
+                    else:
+                        continue
+
+                audio_path = os.path.join(event_dir, event_fname)
+                event_waveform, sr = torchaudio.load(audio_path)
+                if sr != SAMPLE_RATE:
+                    raise ValueError('Expected sample rate of {} Hz, but got {} Hz ({})'.format(SAMPLE_RATE, sr, audio_path))
+                event_waveforms[label] += event_waveform[:, :waveform_len]
+
+            sample.update(event_waveforms)
 
         return sample
 
@@ -106,7 +147,21 @@ def get_data_transforms(train_config):
             elif transform_name == "MelScale":
                 transform_list.append(MelScale(sample_rate=SAMPLE_RATE, **transform_params))
             elif transform_name == "MelSpectrogram":
-                transform_list.append(MelSpectrogram(sample_rate=SAMPLE_RATE, **transform_params))
+                transform_params = dict(transform_params)
+                window_params = transform_params.pop('wkwargs', {})
+                window_fn = get_torch_window_fn(transform_params.get('window_fn', 'hann_window'))
+                transform_list.append(MelSpectrogram(sample_rate=SAMPLE_RATE,
+                                                     window_fn=window_fn,
+                                                     wkwargs=window_params,
+                                                     **transform_params))
+            elif transform_name == "Spectrogram":
+                transform_params = dict(transform_params)
+                window_params = transform_params.pop('wkwargs', {})
+                window_fn = get_torch_window_fn(transform_params.get('window_fn', 'hann_window'))
+                transform_list.append(Spectrogram(sample_rate=SAMPLE_RATE,
+                                                  window_fn=window_fn,
+                                                  wkwargs=window_params,
+                                                  **transform_params))
             else:
                 raise ValueError("Invalid transform type: {}".format(transform_config["name"]))
         return torchvision.transforms.Compose(transform_list)
