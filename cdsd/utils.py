@@ -1,4 +1,18 @@
+from torch import hann_window, sqrt
 from torch.optim import Adam, SGD
+
+
+def sqrt_hann_window(*args, **kwargs):
+    return sqrt(hann_window(*args, **kwargs))
+
+
+def get_torch_window_fn(name):
+    if name == "hann_window":
+        return hann_window
+    elif name == "sqrt_hann_window":
+        return sqrt_hann_window
+    else:
+        raise ValueError('Invalid window type: {}'.format(name))
 
 
 def get_optimizer(parameters, train_config):
