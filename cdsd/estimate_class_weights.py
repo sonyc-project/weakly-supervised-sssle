@@ -6,7 +6,7 @@ import oyaml as yaml
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from .data import get_data_transforms, get_batch_input_key, CDSDDataset
+from .data import get_data_transforms, CDSDDataset
 from .models import construct_classifier
 
 
@@ -25,9 +25,6 @@ def parse_arguments(args):
                         type=str,
                         help='Path to class-wise detection thresholds')
 
-    parser.add_argument('ust_taxonomy_path', type=str,
-                        help='Path to SONYC-UST taxonomy file.')
-
     parser.add_argument('output_dir',
                         type=str,
                         help='Path where outputs will be saved')
@@ -39,7 +36,7 @@ def parse_arguments(args):
     return parser.parse_args(args)
 
 
-def estimate_class_weights(root_data_dir, train_config, class_thresholds, taxonomy,
+def estimate_class_weights(root_data_dir, train_config, class_thresholds,
                            output_dir, num_data_workers=1):
 
     # Create output directory
@@ -61,9 +58,9 @@ def estimate_class_weights(root_data_dir, train_config, class_thresholds, taxono
                                   shuffle=True, pin_memory=True,
                                   num_workers=num_data_workers)
     num_train_batches = len(train_dataloader)
-    classifier = construct_classifier(train_config)
-
-    input_key = get_batch_input_key(train_config)
+    classifier = construct_classifier(train_config,
+                                      dataset=train_dataset,
+                                      require_init=True)
 
     accum_clip_presence = None
     accum_frame_presence = None
@@ -78,7 +75,7 @@ def estimate_class_weights(root_data_dir, train_config, class_thresholds, taxono
     class_thresholds = torch.FloatTensor([class_thresholds[label] for label in class_labels]).view(1, 1, -1)
 
     for batch in tqdm(train_dataloader, total=num_train_batches):
-        x = batch[input_key]
+        x = batch["audio_data"]
         labels = batch["labels"]
         batch_size = x.size()[0]
         num_frames = x.size()[-1]
@@ -137,12 +134,8 @@ if __name__ == "__main__":
     with open(args.class_thresholds_path, 'r') as f:
         class_thresholds = json.load(f)
 
-    with open(args.ust_taxonomy_path, 'r') as f:
-        taxonomy = yaml.load(f)
-
     estimate_class_weights(root_data_dir=args.root_data_dir,
                            train_config=train_config,
-                           taxonomy=taxonomy,
                            output_dir=args.output_dir,
                            class_thresholds=class_thresholds,
                            num_data_workers=args.num_data_workers)

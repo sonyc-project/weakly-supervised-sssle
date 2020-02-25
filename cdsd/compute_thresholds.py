@@ -5,7 +5,7 @@ import sys
 import numpy as np
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from .data import get_data_transforms, get_batch_input_key, CDSDDataset
+from .data import get_data_transforms, CDSDDataset
 from .models import construct_classifier
 from sklearn.metrics import f1_score
 
@@ -46,26 +46,26 @@ def estimate_class_weights(root_data_dir, train_config, output_dir,
 
     input_transform = get_data_transforms(train_config)
 
-    valid_dataset = CDSDDataset(root_data_dir,
-                                subset='validate',
+    train_dataset = CDSDDataset(root_data_dir,
+                                subset='train',
                                 transform=input_transform)
-    valid_dataloader = DataLoader(valid_dataset,
+    train_dataloader = DataLoader(train_dataset,
                                   batch_size=train_config["training"]["batch_size"],
                                   shuffle=True, pin_memory=True,
                                   num_workers=num_data_workers)
-    num_train_batches = len(valid_dataloader)
-    classifier = construct_classifier(train_config)
+    num_train_batches = len(train_dataloader)
+    classifier = construct_classifier(train_config,
+                                      dataset=train_dataset,
+                                      require_init=True)
 
-    input_key = get_batch_input_key(train_config)
-
-    class_labels = valid_dataset.labels
-    num_labels = len(valid_dataset.labels)
+    class_labels = train_dataset.labels
+    num_labels = len(train_dataset.labels)
 
     y_list = []
     pred_list = []
 
-    for batch in tqdm(valid_dataloader, total=num_train_batches):
-        x = batch[input_key]
+    for batch in tqdm(train_dataloader, total=num_train_batches):
+        x = batch["audio_data"]
         y_list.append(batch["labels"].numpy())
         pred_list.append(classifier(x).numpy())
 
