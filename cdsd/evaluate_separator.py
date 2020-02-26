@@ -7,7 +7,7 @@ import pandas as pd
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from data import get_data_transforms, CDSDDataset
-from models import construct_separator
+from models import construct_separator, construct_classifier
 from torchaudio.functional import istft, magphase, spectrogram
 from utils import get_torch_window_fn
 
@@ -87,6 +87,9 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1):
     separator = construct_separator(train_config,
                                     dataset=train_dataset,
                                     require_init=True)
+    classifier = construct_classifier(train_config,
+                                      dataset=train_dataset,
+                                      require_init=True)
 
     for subset in ('train', 'valid', 'test'):
         print('====== Evaluating subset "{}" ======'.format(subset))
@@ -99,8 +102,13 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1):
                                 num_workers=num_data_workers)
         num_batches = len(dataloader)
 
+        # Initialize results lists
         subset_results = {label + "_input_sisdr": [] for label in dataset.labels}
         subset_results.update({label + "_sisdr_improvement": [] for label in dataset.labels})
+
+        subset_results.update({label + "_presence_gt": [] for label in dataset.labels})
+        subset_results.update({"mixture_pred_" + label: [] for label in dataset.labels})
+        subset_results.update({gt_label + "_pred_" + pred_label: [] for gt_label in dataset.labels for pred_label in dataset.labels})
         subset_results["filenames"] = list(dataset.files) # Assuming that dataloader preserves order
 
         subset_results_path = os.path.join(output_dir, "separation_results_{}.csv".format(subset))
@@ -110,6 +118,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1):
             labels = batch["labels"]
             mixture_waveforms = batch["waveform"]
 
+            # Compute cosine and sine of phase spectrogram for reconstruction
             mixture_maggram, mixture_phasegram = magphase(spectrogram(mixture_waveforms,
                                     window=spec_params["window_fn"](
                                         window_length=spec_params["win_length"], **spec_params["wkwargs"]),
@@ -119,17 +128,24 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1):
                                     power=None,
                                     normalized=spec_params["normalized"]))
 
+            # Sanity check
+            assert torch.allclose(x, mixture_maggram)
+
             cos_phasegram = torch.cos(mixture_phasegram)
             sin_phasegram = torch.sin(mixture_phasegram)
 
+            # Run separator on mixture to obtain masks
             masks = separator(x)
+
+            # Run classifier on mixture for later analysis
+            mixture_cls_pred = classifier(x)
 
             for idx, label in enumerate(train_dataset.labels):
                 source_waveforms = batch[label + "_waveform"]
 
                 # Reconstruct source audio
-                recon_source_maggram = mixture_maggram * masks[..., idx]
-                recon_source_stft = torch.zeros(mixture_maggram.size() + (2,))
+                recon_source_maggram = x * masks[..., idx]
+                recon_source_stft = torch.zeros(x.size() + (2,))
                 recon_source_stft[..., 0] = recon_source_maggram * cos_phasegram
                 recon_source_stft[..., 1] = recon_source_maggram * sin_phasegram
                 recon_source_waveforms = istft(
@@ -152,10 +168,20 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1):
                 # If label is not present, then set SDR to NaN
                 sisdr_imp[torch.logical_not(labels[..., idx].bool())] = float('nan')
 
+                # Run classifier on reconstructed source for later analysis
+                source_cls_pred = classifier(recon_source_maggram)
+                for pred_idx, pred_label in enumerate(train_dataset.labels):
+                    subset_results[label + "_pred" + pred_label] += source_cls_pred[:, pred_idx].tolist()
+
+                # Save source separation metrics
                 subset_results[label + "_input_sisdr"] += input_sisdr.tolist()
                 subset_results[label + "_sisdr_improvement"] += sisdr_imp.tolist()
 
-        # Save results as
+                # Save ground truth labels and mixture classification results (since we're already iterating through labels)
+                subset_results[label + "_presence_gt"] += labels[:, idx].tolist()
+                subset_results["mixture_pred_" + label] += mixture_cls_pred[:, idx].tolist()
+
+        # Save results as CSV
         subset_df = pd.DataFrame(subset_results)
         subset_df.to_csv(subset_results_path)
 
