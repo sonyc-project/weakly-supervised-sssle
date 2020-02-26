@@ -181,7 +181,8 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                 sisdr_imp = compute_sisdr(recon_source_waveforms, source_waveforms) - input_sisdr
 
                 # If label is not present, then set SDR to NaN
-                sisdr_imp[torch.logical_not(labels[..., idx].bool())] = float('nan')
+                # Removing for now, we can always do this masking later...
+                # sisdr_imp[torch.logical_not(labels[..., idx].bool())] = float('nan')
 
                 # Run classifier on isolated source for later analysis
                 source_maggram = spectrogram(
