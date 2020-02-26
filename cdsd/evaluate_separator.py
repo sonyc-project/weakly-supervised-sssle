@@ -53,7 +53,7 @@ def parse_arguments(args):
                         help='Path where outputs will be saved. Defaults to the one specified in the train configuration file.')
 
     parser.add_argument('--save-audio',
-                        action='store_true'
+                        action='store_true',
                         help='If true, save the reconstructed audio')
 
     parser.add_argument('-n', '--num-data-workers',
