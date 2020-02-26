@@ -3,10 +3,11 @@ import json
 import os
 import sys
 import torch
+import torchaudio
 import pandas as pd
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from data import get_data_transforms, CDSDDataset
+from data import get_data_transforms, CDSDDataset, SAMPLE_RATE
 from models import construct_separator, construct_classifier
 from torchaudio.functional import istft, magphase, spectrogram
 from utils import get_torch_window_fn
@@ -51,6 +52,10 @@ def parse_arguments(args):
                         type=str,
                         help='Path where outputs will be saved. Defaults to the one specified in the train configuration file.')
 
+    parser.add_argument('--save-audio',
+                        action='store_true'
+                        help='If true, save the reconstructed audio')
+
     parser.add_argument('-n', '--num-data-workers',
                         type=int, default=1,
                         help='Number of workers used for data loading.')
@@ -58,7 +63,7 @@ def parse_arguments(args):
     return parser.parse_args(args)
 
 
-def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1):
+def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, save_audio=False):
     # Create output directory
     output_dir = output_dir or train_config["output_dir"]
     os.makedirs(output_dir, exist_ok=True)
@@ -91,13 +96,15 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1):
                                       dataset=train_dataset,
                                       require_init=True)
 
+    batch_size = train_config["training"]["batch_size"]
+
     for subset in ('train', 'valid', 'test'):
         print('====== Evaluating subset "{}" ======'.format(subset))
         dataset = CDSDDataset(root_data_dir,
                               subset=subset,
                               transform=input_transform,
                               load_separator_data=True)
-        dataloader = DataLoader(dataset, batch_size=train_config["training"]["batch_size"],
+        dataloader = DataLoader(dataset, batch_size=batch_size,
                                 shuffle=False, pin_memory=True,
                                 num_workers=num_data_workers)
         num_batches = len(dataloader)
@@ -142,6 +149,11 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1):
 
             # Run classifier on mixture for later analysis
             mixture_cls_pred = classifier(x)
+
+            if save_audio:
+                recon_audio_dir = os.path.join(output_dir, "reconstructed_audio")
+                os.makedirs(recon_audio_dir, exist_ok=True)
+
 
             for idx, label in enumerate(train_dataset.labels):
                 source_waveforms = batch[label + "_waveform"]
@@ -199,6 +211,14 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1):
                 subset_results[label + "_presence_gt"] += labels[:, idx].tolist()
                 subset_results["mixture_pred_" + label] += mixture_cls_pred[:, idx].tolist()
 
+                if save_audio:
+                    for f_idx in range(recon_source_waveforms.size()[0]):
+                        file = dataset.files[idx * batch_size + f_idx]
+                        recon_out_path = os.path.join(recon_audio_dir, "{}_{}_recon.wav".format(file, label))
+                        torchaudio.save(recon_out_path,
+                                        recon_source_waveforms[f_idx:f_idx+1, :],
+                                        sample_rate=SAMPLE_RATE)
+
         # Save results as CSV
         subset_df = pd.DataFrame(subset_results)
         subset_df.to_csv(subset_results_path)
@@ -216,4 +236,5 @@ if __name__ == "__main__":
     evaluate(root_data_dir=args.root_data_dir,
              train_config=train_config,
              output_dir=args.output_dir,
-             num_data_workers=args.num_data_workers)
+             num_data_workers=args.num_data_workers,
+             save_audio=args.save_audio)
