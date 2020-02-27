@@ -77,13 +77,14 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
         params = transform_config["parameters"]
         break
     spec_params = {
+        "pad": params.get("pad", 0),
         "n_fft": params.get("n_fft", 400),
         "power": params.get("power", 2.0),
         "normalized": params.get("normalized", False),
         "window_fn": get_torch_window_fn(params.get("window_fn", "hann_window")),
         "wkwargs": params.get("wkwargs", {})
     }
-    spec_params["win_length"] = params.get("win_length") or (spec_params["n_fft"] // 2 + 1)
+    spec_params["win_length"] = params.get("win_length") or spec_params["n_fft"]
     spec_params["hop_length"] = params.get("hop_length") or (spec_params["win_length"] // 2)
 
     train_dataset = CDSDDataset(root_data_dir,
@@ -91,10 +92,12 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                                 transform=input_transform)
     separator = construct_separator(train_config,
                                     dataset=train_dataset,
-                                    require_init=True)
+                                    require_init=True,
+                                    trainable=False)
     classifier = construct_classifier(train_config,
                                       dataset=train_dataset,
-                                      require_init=True)
+                                      require_init=True,
+                                      trainable=False)
 
     batch_size = train_config["training"]["batch_size"]
 
@@ -103,7 +106,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
         dataset = CDSDDataset(root_data_dir,
                               subset=subset,
                               transform=input_transform,
-                              load_separator_data=True)
+                              load_separation_data=True)
         dataloader = DataLoader(dataset, batch_size=batch_size,
                                 shuffle=False, pin_memory=True,
                                 num_workers=num_data_workers)
@@ -124,11 +127,12 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
         for batch in tqdm(dataloader, total=num_batches):
             x = batch["audio_data"]
             labels = batch["labels"]
-            mixture_waveforms = batch["waveform"]
+            mixture_waveforms = batch["mixture_waveform"]
 
             # Compute cosine and sine of phase spectrogram for reconstruction
             mixture_maggram, mixture_phasegram = magphase(spectrogram(
                 mixture_waveforms,
+                pad=spec_params["pad"],
                 window=spec_params["window_fn"](
                     window_length=spec_params["win_length"],
                     **spec_params["wkwargs"]),
@@ -136,7 +140,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                 hop_length=spec_params["hop_length"],
                 win_length=spec_params["win_length"],
                 power=None,
-                normalized=spec_params["normalized"]))
+                normalized=spec_params["normalized"]), power=1.0)
 
             # Sanity check
             assert torch.allclose(x, mixture_maggram)
@@ -185,24 +189,15 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                 # sisdr_imp[torch.logical_not(labels[..., idx].bool())] = float('nan')
 
                 # Run classifier on isolated source for later analysis
-                source_maggram = spectrogram(
-                    source_waveforms,
-                    window=spec_params["window_fn"](
-                        window_length=spec_params["win_length"],
-                        **spec_params["wkwargs"]),
-                    n_fft=spec_params["n_fft"],
-                    hop_length=spec_params["hop_length"],
-                    win_length=spec_params["win_length"],
-                    power=None,
-                    normalized=spec_params["normalized"])
+                source_maggram = input_transform(source_waveforms)
                 source_cls_pred = classifier(source_maggram)
                 for pred_idx, pred_label in enumerate(train_dataset.labels):
-                    subset_results["isolated_" + label + "_pred" + pred_label] += source_cls_pred[:, pred_idx].tolist()
+                    subset_results["isolated_" + label + "_pred_" + pred_label] += source_cls_pred[:, pred_idx].tolist()
 
                 # Run classifier on reconstructed source for later analysis
                 source_cls_pred = classifier(recon_source_maggram)
                 for pred_idx, pred_label in enumerate(train_dataset.labels):
-                    subset_results["reconstructed_" + label + "_pred" + pred_label] += source_cls_pred[:, pred_idx].tolist()
+                    subset_results["reconstructed_" + label + "_pred_" + pred_label] += source_cls_pred[:, pred_idx].tolist()
 
                 # Save source separation metrics
                 subset_results[label + "_input_sisdr"] += input_sisdr.tolist()
