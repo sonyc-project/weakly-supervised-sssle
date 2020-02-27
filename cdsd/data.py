@@ -37,16 +37,16 @@ class CDSDDataset(Dataset):
                 # Only look at audio files
                 if not fname.endswith('.wav'):
                     continue
+                name = os.path.splitext(fname)[0]
 
                 # If we are loading the separation data, only include the files
                 # that have separated sources
                 if load_separation_data:
-                    event_dir = os.path.join(self.data_dir, fname + "_events")
+                    event_dir = os.path.join(self.data_dir, name + "_events")
                     if not os.path.isdir(event_dir):
                         continue
 
                 # Make sure there's a corresponding JAMS file
-                name = os.path.splitext(fname)[0]
                 jams_path = os.path.join(self.root_dir, subset, name + '.jams')
                 if not os.path.exists(jams_path):
                     raise ValueError('Missing JAMS file for {} in {}'.format(fname, self.data_dir))
@@ -110,12 +110,12 @@ class CDSDDataset(Dataset):
                 print("Could not find events for {} in {}".format(file, self.data_dir))
 
             event_waveforms = {label + "_waveform": torch.zeros(1, waveform_len) for label in self.labels}
-
             # Accumulate event waveforms by label
             for event_fname in os.listdir(event_dir):
-                split_idx = event_fname.index('_')
-                prefix = event_fname[:split_idx]
-                label = event_fname[split_idx+1:]
+                name = os.path.splitext(event_fname)[0]
+                split_idx = name.index('_')
+                prefix = name[:split_idx]
+                label = name[split_idx+1:]
 
                 # If if background is one of the labels, accumulate separately
                 if prefix.startswith('background'):
@@ -128,7 +128,7 @@ class CDSDDataset(Dataset):
                 event_waveform, sr = torchaudio.load(audio_path)
                 if sr != SAMPLE_RATE:
                     raise ValueError('Expected sample rate of {} Hz, but got {} Hz ({})'.format(SAMPLE_RATE, sr, audio_path))
-                event_waveforms[label] += event_waveform[:, :waveform_len]
+                event_waveforms[label + '_waveform'] += event_waveform[:, :waveform_len]
 
             sample.update(event_waveforms)
 
