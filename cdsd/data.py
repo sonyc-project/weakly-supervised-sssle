@@ -149,7 +149,7 @@ def get_data_transforms(train_config):
             elif transform_name == "MelSpectrogram":
                 transform_params = dict(transform_params)
                 window_params = transform_params.pop('wkwargs', {})
-                window_fn = get_torch_window_fn(transform_params.get('window_fn', 'hann_window'))
+                window_fn = get_torch_window_fn(transform_params.pop('window_fn', 'hann_window'))
                 transform_list.append(MelSpectrogram(sample_rate=SAMPLE_RATE,
                                                      window_fn=window_fn,
                                                      wkwargs=window_params,
@@ -157,9 +157,8 @@ def get_data_transforms(train_config):
             elif transform_name == "Spectrogram":
                 transform_params = dict(transform_params)
                 window_params = transform_params.pop('wkwargs', {})
-                window_fn = get_torch_window_fn(transform_params.get('window_fn', 'hann_window'))
-                transform_list.append(Spectrogram(sample_rate=SAMPLE_RATE,
-                                                  window_fn=window_fn,
+                window_fn = get_torch_window_fn(transform_params.pop('window_fn', 'hann_window'))
+                transform_list.append(Spectrogram(window_fn=window_fn,
                                                   wkwargs=window_params,
                                                   **transform_params))
             else:
