@@ -42,7 +42,8 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1):
                                 transform=input_transform)
     classifier = construct_classifier(train_config,
                                       dataset=train_dataset,
-                                      require_init=True)
+                                      require_init=True,
+                                      trainable=False)
 
     for subset in ('train', 'valid', 'test'):
         print('====== Evaluating subset "{}" ======'.format(subset))
