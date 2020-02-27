@@ -17,7 +17,13 @@ class Separator(nn.Module):
     def forward(self, x):
         if self.transform is not None:
             x = self.transform(x)
-        return self._forward(x)
+
+        # Remove channel dimension
+        x = x.squeeze(dim=1)
+        x = self._forward(x)
+        # Add channel dimension back in
+        x = x[:, None, ...]
+        return x
 
 
 class BLSTMSpectrogramSeparator(Separator):
@@ -38,8 +44,6 @@ class BLSTMSpectrogramSeparator(Separator):
 
     def _forward(self, x):
         batch_size = len(x)
-        # Remove channel dimension
-        x = x.squeeze(dim=1)
         # Reshape since PyTorch convention is for time to be the last dimension,
         # but we need to operate on the channel dimension
         x = x.transpose(2, 1)
@@ -51,7 +55,6 @@ class BLSTMSpectrogramSeparator(Separator):
         x = x.view(batch_size, -1, self.n_bins, self.n_classes)
         # Swap frequence and time dims to adhere to PyTorch convention
         x = x.transpose(2, 1)
-
         return x
 
 
@@ -70,6 +73,8 @@ class Classifier(nn.Module):
     def forward(self, x):
         if self.transform is not None:
             x = self.transform(x)
+        # Remove channel dimension
+        x = x.squeeze(dim=1)
         x = self.forward_frame(x)
         if self.pooling == 'max':
             # Take the max over the time dimension
