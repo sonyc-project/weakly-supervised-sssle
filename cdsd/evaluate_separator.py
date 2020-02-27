@@ -11,6 +11,7 @@ from data import get_data_transforms, CDSDDataset, SAMPLE_RATE
 from models import construct_separator, construct_classifier
 from torchaudio.functional import istft, magphase, spectrogram
 from utils import get_torch_window_fn
+from loudness import compute_dbfs
 
 
 EPS = 1e-8
@@ -113,14 +114,21 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
         num_batches = len(dataloader)
 
         # Initialize results lists
-        subset_results = {label + "_input_sisdr": [] for label in dataset.labels}
+        subset_results = {"filenames": list(dataset.files)} # Assuming that dataloader preserves order
+        subset_results.update({label + "_input_sisdr": [] for label in dataset.labels})
+        subset_results.update({label + "_sisdr_improvement": [] for label in dataset.labels})
+
+        subset_results.update({"mixture_dbfs": []})
+        subset_results.update({"isolated_" + label + "_dbfs": [] for label in dataset.labels})
+        subset_results.update({"reconstructed_" + label + "_dbfs": [] for label in dataset.labels})
+
+        subset_results.update({label + "_input_sisdr": [] for label in dataset.labels})
         subset_results.update({label + "_sisdr_improvement": [] for label in dataset.labels})
 
         subset_results.update({label + "_presence_gt": [] for label in dataset.labels})
         subset_results.update({"mixture_pred_" + label: [] for label in dataset.labels})
         subset_results.update({"isolated_" + gt_label + "_pred_" + pred_label: [] for gt_label in dataset.labels for pred_label in dataset.labels})
         subset_results.update({"reconstructed_" + gt_label + "_pred_" + pred_label: [] for gt_label in dataset.labels for pred_label in dataset.labels})
-        subset_results["filenames"] = list(dataset.files) # Assuming that dataloader preserves order
 
         subset_results_path = os.path.join(output_dir, "separation_results_{}.csv".format(subset))
 
@@ -158,6 +166,8 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                 recon_audio_dir = os.path.join(output_dir, "reconstructed_audio")
                 os.makedirs(recon_audio_dir, exist_ok=True)
 
+            # Compute dBFS for the mixture
+            subset_results["mixture_dbfs"] += compute_dbfs(mixture_waveforms, SAMPLE_RATE).squeeze().tolist()
 
             for idx, label in enumerate(train_dataset.labels):
                 source_waveforms = batch[label + "_waveform"]
@@ -178,6 +188,10 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                     onesided=True,
                     center=True,
                     pad_mode="reflect")
+
+                # Compute dBFS for the isolated and reconstructed sources
+                subset_results["isolated_" + label + "_dbfs"] += compute_dbfs(source_waveforms, SAMPLE_RATE).squeeze().tolist()
+                subset_results["reconstructed_" + label + "_dbfs"] += compute_dbfs(recon_source_waveforms, SAMPLE_RATE).squeeze().tolist()
 
                 # Compute SI-SDR with mixture as estimated source
                 input_sisdr = compute_sisdr(mixture_waveforms, source_waveforms)
