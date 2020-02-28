@@ -89,9 +89,7 @@ class CDSDDataset(Dataset):
                 idx = self.label_to_idx[label]
                 labels[idx] = 1.0
 
-        # TODO: TEMPORARY HACK
-        waveform_len = 64000
-        waveform = waveform[:, :waveform_len]
+        waveform_len = waveform.size()[-1]
         audio_data = waveform
         if self.transform is not None:
             audio_data = self.transform(audio_data)
@@ -128,7 +126,7 @@ class CDSDDataset(Dataset):
                 event_waveform, sr = torchaudio.load(audio_path)
                 if sr != SAMPLE_RATE:
                     raise ValueError('Expected sample rate of {} Hz, but got {} Hz ({})'.format(SAMPLE_RATE, sr, audio_path))
-                event_waveforms[label + '_waveform'] += event_waveform[:, :waveform_len]
+                event_waveforms[label + '_waveform'] += event_waveform
 
             sample.update(event_waveforms)
 
