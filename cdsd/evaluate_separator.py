@@ -4,6 +4,7 @@ import os
 import sys
 import torch
 import torchaudio
+import torch.nn as nn
 import pandas as pd
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -65,10 +66,12 @@ def parse_arguments(args):
 
 
 def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, save_audio=False):
+    # Set up device
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
     # Create output directory
     output_dir = output_dir or train_config["output_dir"]
     os.makedirs(output_dir, exist_ok=True)
-    input_transform = get_data_transforms(train_config)
 
     # get STFT parameters:
     params = {}
@@ -88,9 +91,13 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
     spec_params["win_length"] = params.get("win_length") or spec_params["n_fft"]
     spec_params["hop_length"] = params.get("hop_length") or (spec_params["win_length"] // 2)
 
+    # Set up data loaders
+    input_transform = get_data_transforms(train_config)
     train_dataset = CDSDDataset(root_data_dir,
                                 subset='train',
                                 transform=input_transform)
+
+    # Set up models
     separator = construct_separator(train_config,
                                     dataset=train_dataset,
                                     require_init=True,
@@ -99,6 +106,12 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                                       dataset=train_dataset,
                                       require_init=True,
                                       trainable=False)
+    if torch.cuda.device_count() > 1:
+        print("Using {} GPUs for evaluation.".format(torch.cuda.device_count()))
+        separator = nn.DataParallel(separator)
+        classifier = nn.DataParallel(classifier)
+    separator.to(device)
+    classifier.to(device)
 
     batch_size = train_config["training"]["batch_size"]
 
@@ -133,9 +146,9 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
         subset_results_path = os.path.join(output_dir, "separation_results_{}.csv".format(subset))
 
         for batch in tqdm(dataloader, total=num_batches):
-            x = batch["audio_data"]
-            labels = batch["labels"]
-            mixture_waveforms = batch["mixture_waveform"]
+            x = batch["audio_data"].to(device)
+            labels = batch["labels"].to(device)
+            mixture_waveforms = batch["mixture_waveform"].to(device)
 
             # Compute cosine and sine of phase spectrogram for reconstruction
             mixture_maggram, mixture_phasegram = magphase(spectrogram(
@@ -170,7 +183,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
             subset_results["mixture_dbfs"] += compute_dbfs(mixture_waveforms, SAMPLE_RATE).squeeze().tolist()
 
             for idx, label in enumerate(train_dataset.labels):
-                source_waveforms = batch[label + "_waveform"]
+                source_waveforms = batch[label + "_waveform"].to(device)
 
                 # Reconstruct source audio
                 recon_source_maggram = x * masks[..., idx]

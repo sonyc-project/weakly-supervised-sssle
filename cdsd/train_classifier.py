@@ -40,9 +40,13 @@ def parse_arguments(args):
 
 
 def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoint_interval=10):
+    # Set up device
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
 
+    # Set up data loaders
     input_transform = get_data_transforms(train_config)
     batch_size = train_config["training"]["batch_size"]
 
@@ -62,7 +66,12 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
                                   num_workers=num_data_workers)
     num_valid_batches = len(valid_dataloader)
 
+    # Set up models
     classifier = construct_classifier(train_config, dataset=train_dataset)
+    if torch.cuda.device_count() > 1:
+        print("Using {} GPUs for training.".format(torch.cuda.device_count()))
+        classifier = nn.DataParallel(classifier)
+    classifier.to(device)
 
     # JTC: Should we still provide params with requires_grad=False here?
     optimizer = get_optimizer(classifier.parameters(), train_config)
@@ -101,8 +110,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
 
         print(" **** Training ****")
         for batch in tqdm(train_dataloader, total=num_train_batches):
-            x = batch["audio_data"]
-            labels = batch["labels"]
+            x = batch["audio_data"].to(device)
+            labels = batch["labels"].to(device)
             output = classifier(x)
 
             train_loss = bce_loss_obj(output, labels)
@@ -115,8 +124,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         # Evaluate on validation set
         print(" **** Validation ****")
         for batch in tqdm(valid_dataloader, total=num_valid_batches):
-            x = batch["audio_data"]
-            labels = batch["labels"]
+            x = batch["audio_data"].to(device)
+            labels = batch["labels"].to(device)
             output = classifier(x)
 
             valid_loss = bce_loss_obj(output, labels)
