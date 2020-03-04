@@ -156,7 +156,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                 pad=spec_params["pad"],
                 window=spec_params["window_fn"](
                     window_length=spec_params["win_length"],
-                    **spec_params["wkwargs"]),
+                    **spec_params["wkwargs"]).to(device),
                 n_fft=spec_params["n_fft"],
                 hop_length=spec_params["hop_length"],
                 win_length=spec_params["win_length"],
@@ -164,7 +164,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                 normalized=spec_params["normalized"]), power=1.0)
 
             # Sanity check
-            assert torch.allclose(x, mixture_maggram)
+            assert torch.allclose(x, mixture_maggram, atol=1e-7)
 
             cos_phasegram = torch.cos(mixture_phasegram)
             sin_phasegram = torch.sin(mixture_phasegram)
@@ -180,20 +180,21 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                 os.makedirs(recon_audio_dir, exist_ok=True)
 
             # Compute dBFS for the mixture
-            subset_results["mixture_dbfs"] += compute_dbfs(mixture_waveforms, SAMPLE_RATE).squeeze().tolist()
+            subset_results["mixture_dbfs"] += compute_dbfs(mixture_waveforms, SAMPLE_RATE, device=device).squeeze().tolist()
 
             for idx, label in enumerate(train_dataset.labels):
                 source_waveforms = batch[label + "_waveform"].to(device)
+                source_maggram = batch[label + "_transformed"].to(device)
 
                 # Reconstruct source audio
                 recon_source_maggram = x * masks[..., idx]
-                recon_source_stft = torch.zeros(x.size() + (2,))
+                recon_source_stft = torch.zeros(x.size() + (2,)).to(device)
                 recon_source_stft[..., 0] = recon_source_maggram * cos_phasegram
                 recon_source_stft[..., 1] = recon_source_maggram * sin_phasegram
                 recon_source_waveforms = istft(
                     recon_source_stft,
                     window=spec_params["window_fn"](
-                        window_length=spec_params["win_length"], **spec_params["wkwargs"]),
+                        window_length=spec_params["win_length"], **spec_params["wkwargs"]).to(device),
                     n_fft=spec_params["n_fft"],
                     hop_length=spec_params["hop_length"],
                     win_length=spec_params["win_length"],
@@ -203,8 +204,8 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                     pad_mode="reflect")
 
                 # Compute dBFS for the isolated and reconstructed sources
-                subset_results["isolated_" + label + "_dbfs"] += compute_dbfs(source_waveforms, SAMPLE_RATE).squeeze().tolist()
-                subset_results["reconstructed_" + label + "_dbfs"] += compute_dbfs(recon_source_waveforms, SAMPLE_RATE).squeeze().tolist()
+                subset_results["isolated_" + label + "_dbfs"] += compute_dbfs(source_waveforms, SAMPLE_RATE, device=device).squeeze().tolist()
+                subset_results["reconstructed_" + label + "_dbfs"] += compute_dbfs(recon_source_waveforms, SAMPLE_RATE, device=device).squeeze().tolist()
 
                 # Compute SI-SDR with mixture as estimated source
                 input_sisdr = compute_sisdr(mixture_waveforms, source_waveforms)
@@ -216,7 +217,6 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                 # sisdr_imp[torch.logical_not(labels[..., idx].bool())] = float('nan')
 
                 # Run classifier on isolated source for later analysis
-                source_maggram = input_transform(source_waveforms)
                 source_cls_pred = classifier(source_maggram)
                 for pred_idx, pred_label in enumerate(train_dataset.labels):
                     subset_results["isolated_" + label + "_pred_" + pred_label] += source_cls_pred[:, pred_idx].tolist()
@@ -239,7 +239,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                         file = dataset.files[idx * batch_size + f_idx]
                         recon_out_path = os.path.join(recon_audio_dir, "{}_{}_recon.wav".format(file, label))
                         torchaudio.save(recon_out_path,
-                                        recon_source_waveforms[f_idx:f_idx+1, :],
+                                        recon_source_waveforms[f_idx, :].cpu(),
                                         sample_rate=SAMPLE_RATE)
 
         # Save results as CSV

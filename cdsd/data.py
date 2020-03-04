@@ -39,13 +39,6 @@ class CDSDDataset(Dataset):
                     continue
                 name = os.path.splitext(fname)[0]
 
-                # If we are loading the separation data, only include the files
-                # that have separated sources
-                if load_separation_data:
-                    event_dir = os.path.join(self.data_dir, name + "_events")
-                    if not os.path.isdir(event_dir):
-                        continue
-
                 # Make sure there's a corresponding JAMS file
                 jams_path = os.path.join(self.root_dir, subset, name + '.jams')
                 if not os.path.exists(jams_path):
@@ -56,6 +49,13 @@ class CDSDDataset(Dataset):
                 for ann in jams_obj.annotations[0].data:
                     if ann.value['role'] == "foreground":
                         labels.add(ann.value['label'])
+
+                # If we are loading the separation data, only include the files
+                # that have separated sources
+                if load_separation_data:
+                    event_dir = os.path.join(self.data_dir, name + "_events")
+                    if not os.path.isdir(event_dir):
+                        continue
 
                 if subset == self.subset:
                     self.files.append(name)
@@ -126,9 +126,14 @@ class CDSDDataset(Dataset):
                 event_waveform, sr = torchaudio.load(audio_path)
                 if sr != SAMPLE_RATE:
                     raise ValueError('Expected sample rate of {} Hz, but got {} Hz ({})'.format(SAMPLE_RATE, sr, audio_path))
-                event_waveforms[label + '_waveform'] += event_waveform
+
+                event_waveforms[label + '_waveform'] += event_waveform[:, :waveform_len]
 
             sample.update(event_waveforms)
+
+            if self.transform is not None:
+                for label in self.labels:
+                    sample[label + '_transformed'] = self.transform(event_waveforms[label + '_waveform'])
 
         return sample
 

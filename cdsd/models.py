@@ -34,6 +34,7 @@ class BLSTMSpectrogramSeparator(Separator):
                              num_layers=n_layers,
                              bias=bias,
                              bidirectional=True)
+        self.blstm.flatten_parameters()
 
         self.fc = nn.Linear(2*hidden_dim, n_bins * n_classes, bias=bias)
         self.n_bins = n_bins
@@ -94,6 +95,7 @@ class BLSTMSpectrogramClassifier(Classifier):
                              num_layers=n_layers,
                              bias=bias,
                              bidirectional=True)
+        self.blstm.flatten_parameters()
 
         # PyTorch automatically takes care of time-distributing for linear layers
         self.fc = nn.Linear(2*hidden_dim, self.n_classes, bias=bias)

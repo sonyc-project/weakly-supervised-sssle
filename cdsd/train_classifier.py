@@ -95,8 +95,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         save_config["root_data_dir"] = root_data_dir
         save_config["output_dir"] = output_dir
         save_config["num_data_workers"] = num_data_workers
-        save_config["classifier"]["best_checkpoint_path"] = classifier_best_ckpt_path
-        save_config["classifier"]["latest_checkpoint_path"] = classifier_latest_ckpt_path
+        save_config["classifier"]["best_path"] = classifier_best_ckpt_path
+        save_config["classifier"]["latest_path"] = classifier_latest_ckpt_path
         json.dump(save_config, f)
 
     # TODO: Need to take care of making sure data/model is properly loaded on
