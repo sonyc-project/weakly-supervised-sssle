@@ -182,11 +182,11 @@ class CRNNSpectrogramClassifier(Classifier):
 
     def forward_frame(self, x):
         batch_size = x.size()[0]
-        x = self.conv1(x)
+        x = torch.relu(self.conv1(x))
         x = self.pool1(x)
-        x = self.conv2(x)
+        x = torch.relu(self.conv2(x))
         x = self.pool2(x)
-        x = self.conv3(x)
+        x = torch.relu(self.conv3(x))
         x = self.pool3(x)
         # Flatten the channel and frequency dimensions
         x = x.view(batch_size, self.conv3_cout * self.pool3_bin_out, -1)
