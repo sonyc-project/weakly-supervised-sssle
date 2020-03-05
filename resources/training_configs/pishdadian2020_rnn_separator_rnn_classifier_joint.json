@@ -1,0 +1,76 @@
+{
+    "input_transforms": [
+        {
+            "name": "Spectrogram",
+            "parameters": {
+                "n_fft": 512,
+                "hop_length": 128,
+                "window_fn": "sqrt_hann_window",
+                "power": 1.0
+            }
+        }
+    ],
+
+    "separator": {
+        "model": "BLSTMSpectrogramSeparator",
+        "input_transforms": [
+            {
+                "name": "AmplitudeToDB",
+                "parameters": {
+                    "stype": "magnitude"
+                }
+            }
+        ],
+        "parameters": {
+            "n_bins": 257,
+            "n_layers": 3,
+            "hidden_dim": 600,
+            "bias": true
+        }
+    },
+
+
+    "classifier": {
+        "model": "BLSTMSpectrogramClassifier",
+        "parameters": {
+            "n_bins": 257,
+            "n_layers": 2,
+            "hidden_dim": 100,
+            "bias": true,
+            "pooling": "max"
+        },
+        "input_transforms": [
+            {
+                "name": "AmplitudeToDB",
+                "parameters": {
+                    "stype": "magnitude"
+                }
+            }
+        ],
+
+        "trainable": true
+    },
+
+    "losses": {
+        "mixture": {
+            "name": "mixture_loss",
+            "margin": 0.5,
+            "weight": 1.0
+        },
+        "classification": {
+            "weight": 1.0
+        }
+    },
+
+    "training": {
+        "batch_size": 4,
+        "num_epochs": 2,
+        "optimizer": {
+            "name": "Adam",
+            "parameters": {
+                "lr": 0.0001
+            }
+        }
+    }
+
+}

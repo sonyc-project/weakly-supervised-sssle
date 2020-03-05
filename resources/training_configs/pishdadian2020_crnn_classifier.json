@@ -1,0 +1,45 @@
+{
+    "input_transforms": [
+        {
+            "name": "Spectrogram",
+            "parameters": {
+                "n_fft": 512,
+                "hop_length": 128,
+                "window_fn": "sqrt_hann_window",
+                "power": 1.0
+            }
+        }
+    ],
+
+    "classifier": {
+        "model": "CRNNSpectrogramClassifier",
+        "parameters": {
+            "n_bins": 257,
+            "blstm_hidden_dim": 100,
+            "conv_kernel_size": 5,
+            "num_input_channels": 1,
+            "bias": true,
+            "pooling": "max"
+        },
+        "input_transforms": [
+            {
+                "name": "AmplitudeToDB",
+                "parameters": {}
+            }
+        ],
+
+        "trainable": true
+    },
+
+    "training": {
+        "batch_size": 4,
+        "num_epochs": 2,
+        "optimizer": {
+            "name": "Adam",
+            "parameters": {
+                "lr": 0.0001
+            }
+        }
+    }
+
+}
