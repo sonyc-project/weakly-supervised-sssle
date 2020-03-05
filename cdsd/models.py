@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.parallel
 import torch.utils.data
 from data import get_data_transforms
+from utils import same_pad, conv2d_output_shape
 
 
 class Separator(nn.Module):
@@ -32,6 +33,7 @@ class BLSTMSpectrogramSeparator(Separator):
         self.blstm = nn.LSTM(input_size=n_bins,
                              hidden_size=hidden_dim,
                              num_layers=n_layers,
+                             batch_first=True,
                              bias=bias,
                              bidirectional=True)
         self.blstm.flatten_parameters()
@@ -48,6 +50,7 @@ class BLSTMSpectrogramSeparator(Separator):
         # Reshape since PyTorch convention is for time to be the last dimension,
         # but we need to operate on the channel dimension
         x = x.transpose(2, 1)
+        self.blstm.flatten_parameters()
         x, _ = self.blstm(x)
         # JTC: IIUC, then the nonlinearity is baked into the LSTM implementation
         # PyTorch automatically takes care of time-distributing for linear layers
@@ -74,33 +77,32 @@ class Classifier(nn.Module):
     def forward(self, x):
         if self.transform is not None:
             x = self.transform(x)
-        # Remove channel dimension
-        x = x.squeeze(dim=1)
         x = self.forward_frame(x)
         if self.pooling == 'max':
             # Take the max over the time dimension
             x, _ = x.max(dim=1)
         else:
             raise ValueError('Invalid pooling type: {}'.format(self.pooling))
+        # TODO: Implement Autopool
         return x
 
 
 class BLSTMSpectrogramClassifier(Classifier):
     def __init__(self, n_bins, n_classes, n_layers=2, hidden_dim=100, bias=False,
                  pooling='max', transform=None):
-        super(BLSTMSpectrogramClassifier, self).__init__(n_classes, pooling,
+        super(BLSTMSpectrogramClassifier, self).__init__(n_classes,
+                                                         pooling=pooling,
                                                          transform=transform)
         self.blstm = nn.LSTM(input_size=n_bins,
                              hidden_size=hidden_dim,
                              num_layers=n_layers,
                              bias=bias,
+                             batch_first=True,
                              bidirectional=True)
         self.blstm.flatten_parameters()
 
         # PyTorch automatically takes care of time-distributing for linear layers
         self.fc = nn.Linear(2*hidden_dim, self.n_classes, bias=bias)
-
-        # TODO: Implement Autopool
 
     def forward_frame(self, x):
         # Remove channel dimension
@@ -108,6 +110,89 @@ class BLSTMSpectrogramClassifier(Classifier):
         # Reshape since PyTorch convention is for time to be the last dimension,
         # but we need to operate on the channel dimension
         x = x.transpose(2, 1)
+        self.blstm.flatten_parameters()
+        x, _ = self.blstm(x)
+        x = torch.sigmoid(self.fc(x))
+        return x
+
+
+class CRNNSpectrogramClassifier(Classifier):
+    def __init__(self, n_bins, n_classes, blstm_hidden_dim=100, bias=False,
+                 pooling='max', num_input_channels=1, conv_kernel_size=(5,5), transform=None):
+        super(CRNNSpectrogramClassifier, self).__init__(n_classes,
+                                                        pooling=pooling,
+                                                        transform=transform)
+
+        conv_padding = same_pad(conv_kernel_size)
+
+        self.conv1_cout = 32
+        self.conv1 = nn.Conv2d(in_channels=num_input_channels,
+                               out_channels=self.conv1_cout,
+                               kernel_size=conv_kernel_size,
+                               padding=conv_padding,
+                               bias=bias)
+        self.conv1_bin_out = conv2d_output_shape(n_bins,
+                                            kernel_size=conv_kernel_size,
+                                            padding=conv_padding)[0]
+        self.pool1 = nn.MaxPool2d((2,1))
+        self.pool1_bin_out = conv2d_output_shape(self.conv1_bin_out,
+                                            kernel_size=(2,1),
+                                            stride=(2,1))
+
+        self.conv2_cout = 64
+        # Transpose of Pishdadian et al. since PyTorch convention puts
+        # time in last dimension
+        self.conv2 = nn.Conv2d(in_channels=self.conv1_cout,
+                               out_channels=self.conv2_cout,
+                               kernel_size=conv_kernel_size,
+                               padding=same_pad(conv_kernel_size),
+                               bias=bias)
+        conv2_bin_out = conv2d_output_shape(self.pool1_bin_out,
+                                            kernel_size=conv_kernel_size,
+                                            padding=conv_padding)[0]
+        self.pool2 = nn.MaxPool2d((2,2))
+        self.pool2_bin_out = conv2d_output_shape(conv2_bin_out,
+                                            kernel_size=conv_kernel_size,
+                                            padding=conv_padding)[0]
+
+        self.conv3_cout = 128
+        self.conv3 = nn.Conv2d(in_channels=self.conv2_cout,
+                               out_channels=self.conv3_cout,
+                               kernel_size=conv_kernel_size,
+                               padding=same_pad(conv_kernel_size),
+                               bias=bias)
+        conv3_bin_out = conv2d_output_shape(self.pool2_bin_out,
+                                            kernel_size=conv_kernel_size,
+                                            padding=conv_padding)[0]
+        self.pool3 = nn.MaxPool2d((2,2))
+        self.pool3_bin_out = conv2d_output_shape(conv3_bin_out,
+                                            kernel_size=conv_kernel_size,
+                                            padding=conv_padding)[0]
+
+        self.blstm = nn.LSTM(input_size=self.conv3_cout * self.pool3_bin_out,
+                             hidden_size=blstm_hidden_dim,
+                             num_layers=1,
+                             bias=bias,
+                             batch_first=True,
+                             bidirectional=True)
+        self.blstm.flatten_parameters()
+
+        # PyTorch automatically takes care of time-distributing for linear layers
+        self.fc = nn.Linear(2*blstm_hidden_dim, self.n_classes, bias=bias)
+
+    def forward_frame(self, x):
+        batch_size = x.size()[0]
+        x = self.conv1(x)
+        x = self.pool1(x)
+        x = self.conv2(x)
+        x = self.pool2(x)
+        x = self.conv3(x)
+        x = self.pool3(x)
+        # Flatten the channel and frequency dimensions
+        x = x.view(batch_size, self.conv3_cout * self.pool3_bin_out, -1)
+        # Switch the feature and time dimensions
+        x = x.transpose(2, 1)
+        self.blstm.flatten_parameters()
         x, _ = self.blstm(x)
         x = torch.sigmoid(self.fc(x))
         return x

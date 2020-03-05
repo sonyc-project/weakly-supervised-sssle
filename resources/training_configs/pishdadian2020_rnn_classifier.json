@@ -31,8 +31,8 @@
     },
 
     "training": {
-        "batch_size": 32,
-        "num_epochs": 50,
+        "batch_size": 4,
+        "num_epochs": 2,
         "optimizer": {
             "name": "Adam",
             "parameters": {
