@@ -134,26 +134,28 @@ class CRNNSpectrogramClassifier(Classifier):
         self.conv1_bin_out = conv2d_output_shape(n_bins,
                                             kernel_size=conv_kernel_size,
                                             padding=conv_padding)[0]
-        self.pool1 = nn.MaxPool2d((2,1))
-        self.pool1_bin_out = conv2d_output_shape(self.conv1_bin_out,
-                                            kernel_size=(2,1),
-                                            stride=(2,1))
-
-        self.conv2_cout = 64
         # Transpose of Pishdadian et al. since PyTorch convention puts
         # time in last dimension
+        self.pool1_size = (2,1)
+        self.pool1 = nn.MaxPool2d(self.pool1_size)
+        self.pool1_bin_out = conv2d_output_shape(self.conv1_bin_out,
+                                            kernel_size=self.pool1_size,
+                                            stride=self.pool1_size)[0]
+
+        self.conv2_cout = 64
         self.conv2 = nn.Conv2d(in_channels=self.conv1_cout,
                                out_channels=self.conv2_cout,
                                kernel_size=conv_kernel_size,
                                padding=same_pad(conv_kernel_size),
                                bias=bias)
-        conv2_bin_out = conv2d_output_shape(self.pool1_bin_out,
+        self.conv2_bin_out = conv2d_output_shape(self.pool1_bin_out,
                                             kernel_size=conv_kernel_size,
                                             padding=conv_padding)[0]
-        self.pool2 = nn.MaxPool2d((2,2))
-        self.pool2_bin_out = conv2d_output_shape(conv2_bin_out,
-                                            kernel_size=conv_kernel_size,
-                                            padding=conv_padding)[0]
+        self.pool2_size = (2,2)
+        self.pool2 = nn.MaxPool2d(self.pool2_size)
+        self.pool2_bin_out = conv2d_output_shape(self.conv2_bin_out,
+                                            kernel_size=self.pool2_size,
+                                            stride=self.pool2_size)[0]
 
         self.conv3_cout = 128
         self.conv3 = nn.Conv2d(in_channels=self.conv2_cout,
@@ -161,13 +163,14 @@ class CRNNSpectrogramClassifier(Classifier):
                                kernel_size=conv_kernel_size,
                                padding=same_pad(conv_kernel_size),
                                bias=bias)
-        conv3_bin_out = conv2d_output_shape(self.pool2_bin_out,
+        self.conv3_bin_out = conv2d_output_shape(self.pool2_bin_out,
                                             kernel_size=conv_kernel_size,
                                             padding=conv_padding)[0]
-        self.pool3 = nn.MaxPool2d((2,2))
-        self.pool3_bin_out = conv2d_output_shape(conv3_bin_out,
-                                            kernel_size=conv_kernel_size,
-                                            padding=conv_padding)[0]
+        self.pool3_size = (2,2)
+        self.pool3 = nn.MaxPool2d(self.pool3_size)
+        self.pool3_bin_out = conv2d_output_shape(self.conv3_bin_out,
+                                            kernel_size=self.pool3_size,
+                                            stride=self.pool3_size)[0]
 
         self.blstm = nn.LSTM(input_size=self.conv3_cout * self.pool3_bin_out,
                              hidden_size=blstm_hidden_dim,
@@ -241,6 +244,10 @@ def construct_classifier(train_config, dataset, weights_path=None, require_init=
     # Construct classifier
     if classifier_config["model"] == "BLSTMSpectrogramClassifier":
         classifier = BLSTMSpectrogramClassifier(n_classes=dataset.num_labels,
+                                                transform=classifier_input_transform,
+                                                **classifier_config["parameters"])
+    if classifier_config["model"] == "CRNNSpectrogramClassifier":
+        classifier = CRNNSpectrogramClassifier(n_classes=dataset.num_labels,
                                                 transform=classifier_input_transform,
                                                 **classifier_config["parameters"])
     else:
