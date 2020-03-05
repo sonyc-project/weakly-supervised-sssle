@@ -1,7 +1,7 @@
 import os
 import sys
 import pandas as pd
-import shutil
+import subprocess
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from tqdm import tqdm
 
@@ -48,13 +48,11 @@ def parse_arguments(args):
                         help='Output directory where audio files will be saved.')
     parser.add_argument('--ust-mapping', action='store_true',
                         help='If true, uses SONYC-UST mappings.')
-    parser.add_argument('--use-symlinks', action='store_true',
-                        help='If true, create symlinks to audio files to avoid copying audio.')
 
     return parser.parse_args(args)
 
 
-def run(us8k_dir, out_dir, ust_mapping=False, use_symlinks=False):
+def run(us8k_dir, out_dir, ust_mapping=False):
     metadata_path = os.path.join(us8k_dir, 'metadata', 'UrbanSound8K.csv')
     df = pd.read_csv(metadata_path)
 
@@ -108,11 +106,12 @@ def run(us8k_dir, out_dir, ust_mapping=False, use_symlinks=False):
             # Make sure output dir exists
             os.makedirs(os.path.dirname(dst_path), exist_ok=True)
 
-        # Copy the file
-        if not use_symlinks:
-            shutil.copy2(src_path, dst_path)
-        else:
-            os.symlink(src_path, dst_path)
+        # Process the file with FFMPEG to ensure that the formats are uniform
+        cmd_args = ["ffmpeg", "-i", src_path, dst_path]
+        res = subprocess.run(cmd_args, capture_output=True)
+        if res.returncode != 0:
+            err_msg = "Error processing {}:\n{}\n{}"
+            raise OSError(err_msg.format(res.stdout, res.stderr))
 
 
 if __name__ == '__main__':
