@@ -24,7 +24,7 @@ def parse_arguments(args):
     return parser.parse_args(args)
 
 
-def run(annotation_path, taxonomy_path, data_dir, out_dir, use_symlinks=False):
+def run(annotation_path, taxonomy_path, data_dir, out_dir):
     ann_df = pd.read_csv(annotation_path).sort_values('audio_filename')
 
     file_list = ann_df['audio_filename'].unique().tolist()
@@ -55,7 +55,7 @@ def run(annotation_path, taxonomy_path, data_dir, out_dir, use_symlinks=False):
 
         # Process the file with FFMPEG to ensure that the formats and sample rates are uniform
         cmd_args = ["ffmpeg", "-i", src_audio_path, "-ar", str(SAMPLE_RATE), dst_audio_path]
-        res = subprocess.run(cmd_args, capture_output=True)
+        res = subprocess.run(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if res.returncode != 0:
             err_msg = "Error processing {}:\n{}\n{}"
             raise OSError(err_msg.format(src_audio_path, res.stdout, res.stderr))
@@ -130,6 +130,5 @@ if __name__ == '__main__':
     run(annotation_path=args.ust_annotation_path,
         taxonomy_path=args.ust_taxonomy_path,
         data_dir=args.ust_folder,
-        out_dir=args.out_folder,
-        use_symlinks=args.use_symlinks)
+        out_dir=args.out_folder)
 

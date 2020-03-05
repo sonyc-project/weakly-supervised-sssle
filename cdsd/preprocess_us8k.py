@@ -109,7 +109,7 @@ def run(us8k_dir, out_dir, ust_mapping=False):
 
         # Process the file with FFMPEG to ensure that the formats and sample rates are uniform
         cmd_args = ["ffmpeg", "-i", src_path, "-ar", str(SAMPLE_RATE), dst_path]
-        res = subprocess.run(cmd_args, capture_output=True)
+        res = subprocess.run(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if res.returncode != 0:
             err_msg = "Error processing {}:\n{}\n{}"
             raise OSError(err_msg.format(src_path, res.stdout, res.stderr))
@@ -119,6 +119,5 @@ if __name__ == '__main__':
     args = parse_arguments(sys.argv[1:])
     run(us8k_dir=args.us8k_folder,
         out_dir=args.out_folder,
-        ust_mapping=args.ust_mapping,
-        use_symlinks=args.use_symlinks)
+        ust_mapping=args.ust_mapping)
 
