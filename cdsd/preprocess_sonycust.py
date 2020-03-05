@@ -1,7 +1,6 @@
 import os
 import sys
 import pandas as pd
-import shutil
 import soundfile as sf
 import oyaml as yaml
 import jams
@@ -21,8 +20,6 @@ def parse_arguments(args):
                         help='Path to SONYC-UST dataset.')
     parser.add_argument('out_folder', type=str,
                         help='Output directory where audio files will be saved.')
-    parser.add_argument('--use-symlinks', action='store_true',
-                        help='If true, create symlinks to audio files to avoid copying audio.')
 
     return parser.parse_args(args)
 
@@ -56,11 +53,12 @@ def run(annotation_path, taxonomy_path, data_dir, out_dir, use_symlinks=False):
         dst_audio_path = os.path.join(out_subset_dir, filename)
         dst_jams_path = os.path.join(out_subset_dir, os.path.splitext(filename)[0] + '.jams')
 
-        # Copy audio
-        if not use_symlinks:
-            shutil.copy2(src_audio_path, dst_audio_path)
-        else:
-            os.symlink(src_audio_path, dst_audio_path)
+        # Process the file with FFMPEG to ensure that the formats and sample rates are uniform
+        cmd_args = ["ffmpeg", "-i", src_audio_path, "-ar", str(SAMPLE_RATE), dst_audio_path]
+        res = subprocess.run(cmd_args, capture_output=True)
+        if res.returncode != 0:
+            err_msg = "Error processing {}:\n{}\n{}"
+            raise OSError(err_msg.format(src_audio_path, res.stdout, res.stderr))
 
         # Load audio to get duration
         audio, sr = sf.read(src_audio_path)

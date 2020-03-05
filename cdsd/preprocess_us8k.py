@@ -4,6 +4,7 @@ import pandas as pd
 import subprocess
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from tqdm import tqdm
+from data import SAMPLE_RATE
 
 
 US8K_LABELS = [
@@ -106,12 +107,12 @@ def run(us8k_dir, out_dir, ust_mapping=False):
             # Make sure output dir exists
             os.makedirs(os.path.dirname(dst_path), exist_ok=True)
 
-        # Process the file with FFMPEG to ensure that the formats are uniform
-        cmd_args = ["ffmpeg", "-i", src_path, dst_path]
+        # Process the file with FFMPEG to ensure that the formats and sample rates are uniform
+        cmd_args = ["ffmpeg", "-i", src_path, "-ar", str(SAMPLE_RATE), dst_path]
         res = subprocess.run(cmd_args, capture_output=True)
         if res.returncode != 0:
             err_msg = "Error processing {}:\n{}\n{}"
-            raise OSError(err_msg.format(res.stdout, res.stderr))
+            raise OSError(err_msg.format(src_path, res.stdout, res.stderr))
 
 
 if __name__ == '__main__':
