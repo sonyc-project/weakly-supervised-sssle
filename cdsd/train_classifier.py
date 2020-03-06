@@ -68,8 +68,10 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
 
     # Set up models
     classifier = construct_classifier(train_config, dataset=train_dataset)
+    multi_gpu = False
     if torch.cuda.device_count() > 1:
         print("Using {} GPUs for training.".format(torch.cuda.device_count()))
+        multi_gpu = True
         classifier = nn.DataParallel(classifier)
     classifier.to(device)
 
@@ -137,19 +139,25 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         valid_loss = accum_valid_loss / num_valid_batches
         history_logger.log(epoch, train_loss, valid_loss)
 
+        # If using DataParallel, get model from inside wrapper
+        if multi_gpu:
+            classifier_state_dict = classifier.module.state_dict()
+        else:
+            classifier_state_dict classifier.state_dict()
+
         # PyTorch saving recommendations: https://stackoverflow.com/a/49078976
         # Checkpoint every N epochs
         if epoch % checkpoint_interval:
             classifier_ckpt_path = os.path.join(output_dir, "classifier_epoch-{}.pt".format(epoch))
-            torch.save(classifier.state_dict(), classifier_ckpt_path)
+            torch.save(classifier_state_dict, classifier_ckpt_path)
 
         # Save best model (w.r.t. validation loss)
         if history_logger.valid_loss_improved():
             # Checkpoint best model
-            torch.save(classifier.state_dict(), classifier_best_ckpt_path)
+            torch.save(classifier_state_dict, classifier_best_ckpt_path)
 
         # Always save latest states
-        torch.save(classifier.state_dict(), classifier_latest_ckpt_path)
+        torch.save(classifier_state_dict, classifier_latest_ckpt_path)
         torch.save(optimizer.state_dict(), optimizer_latest_ckpt_path)
 
     history_logger.close()

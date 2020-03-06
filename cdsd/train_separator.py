@@ -71,8 +71,10 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
     # Set up models
     separator = construct_separator(train_config, dataset=train_dataset)
     classifier = construct_classifier(train_config, dataset=train_dataset)
+    multi_gpu = False
     if torch.cuda.device_count() > 1:
         print("Using {} GPUs for training.".format(torch.cuda.device_count()))
+        multi_gpu = True
         separator = nn.DataParallel(separator)
         classifier = nn.DataParallel(classifier)
     separator.to(device)
@@ -207,23 +209,30 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         history_logger.log(epoch, train_mix_loss, train_cls_loss, train_tot_loss,
                            valid_mix_loss, valid_cls_loss, valid_tot_loss)
 
+        if multi_gpu:
+            separator_state_dict = separator.module.state_dict()
+            classifier_state_dict = classifier.module.state_dict()
+        else:
+            separator_state_dict = separator.state_dict()
+            classifier_state_dict = classifier.state_dict()
+
         # PyTorch saving recommendations: https://stackoverflow.com/a/49078976
         # Checkpoint every N epochs
         if epoch % checkpoint_interval:
             separator_ckpt_path = os.path.join(output_dir, "separator_epoch-{}.pt".format(epoch))
             classifier_ckpt_path = os.path.join(output_dir, "classifier_epoch-{}.pt".format(epoch))
-            torch.save(separator.state_dict(), separator_ckpt_path)
-            torch.save(classifier.state_dict(), classifier_ckpt_path)
+            torch.save(separator_state_dict, separator_ckpt_path)
+            torch.save(classifier_state_dict, classifier_ckpt_path)
 
         # Save best model (w.r.t. validation loss)
         if history_logger.valid_loss_improved():
             # Checkpoint best model
-            torch.save(separator.state_dict(), separator_best_ckpt_path)
-            torch.save(classifier.state_dict(), classifier_best_ckpt_path)
+            torch.save(separator_state_dict, separator_best_ckpt_path)
+            torch.save(classifier_state_dict, classifier_best_ckpt_path)
 
         # Always save latest states
-        torch.save(separator.state_dict(), separator_latest_ckpt_path)
-        torch.save(classifier.state_dict(), classifier_latest_ckpt_path)
+        torch.save(separator_state_dict, separator_latest_ckpt_path)
+        torch.save(classifier_state_dict, classifier_latest_ckpt_path)
         torch.save(optimizer.state_dict(), optimizer_latest_ckpt_path)
 
     history_logger.close()

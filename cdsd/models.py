@@ -221,7 +221,14 @@ def construct_separator(train_config, dataset, weights_path=None, require_init=F
                    or separator_config.get("best_path") \
                    or separator_config.get("pretrained_path")
     if weights_path:
-        separator.load_state_dict(torch.load(weights_path))
+        weights = torch.load(weights_path)
+        try:
+            separator.load_state_dict(weights)
+        except RuntimeError:
+            print("*** It appears separator was saved in a DataParallel parallel wrapper. Retrieving internal model weights. ***")
+            weights = {(k[7:] if k.startswith('module.') else k): v
+                       for k, v in weights.items()}
+            separator.load_state_dict(weights)
         print("Loaded separator weights from {}".format(weights_path))
     elif require_init:
         raise ValueError("Requires separator weights to be specified.")
@@ -258,7 +265,14 @@ def construct_classifier(train_config, dataset, weights_path=None, require_init=
                    or classifier_config.get("best_path") \
                    or classifier_config.get("pretrained_path")
     if weights_path:
-        classifier.load_state_dict(torch.load(weights_path))
+        weights = torch.load(weights_path)
+        try:
+            classifier.load_state_dict(weights)
+        except RuntimeError:
+            print("*** It appears classifier was saved in a DataParallel parallel wrapper. Retrieving internal model weights. ***")
+            weights = {(k[7:] if k.startswith('module.') else k): v
+                       for k, v in weights.items()}
+            classifier.load_state_dict(weights)
         print("Loaded classifier weights from {}".format(weights_path))
     elif require_init:
         raise ValueError("Requires classifier weights to be specified.")
