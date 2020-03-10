@@ -6,6 +6,7 @@ import torch
 import torchaudio
 import torch.nn as nn
 import pandas as pd
+import numpy as np
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from data import get_data_transforms, CDSDDataset, SAMPLE_RATE
@@ -178,6 +179,8 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
             if save_audio:
                 recon_audio_dir = os.path.join(output_dir, "reconstructed_audio")
                 os.makedirs(recon_audio_dir, exist_ok=True)
+            recon_masks_dir = os.path.join(output_dir, "reconstructed_masks")
+            os.makedirs(recon_masks_dir, exist_ok=True)
 
             # Compute dBFS for the mixture
             subset_results["mixture_dbfs"] += compute_dbfs(mixture_waveforms, SAMPLE_RATE, device=device).squeeze().tolist()
@@ -241,6 +244,13 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                         torchaudio.save(recon_out_path,
                                         recon_source_waveforms[f_idx, :].cpu(),
                                         sample_rate=SAMPLE_RATE)
+
+                # Save masks for analysis and debugging
+                for f_idx in range(masks.size()[0]):
+                    file = dataset.files[idx * batch_size + f_idx]
+                    recon_out_path = os.path.join(recon_masks_dir, "{}_{}_recon.npy".format(file, label))
+                    mask = masks[f_idx, ..., idx].cpu().numpy()
+                    np.save(recon_out_path, mask)
 
         # Save results as CSV
         subset_df = pd.DataFrame(subset_results)
