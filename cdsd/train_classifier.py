@@ -143,7 +143,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         if multi_gpu:
             classifier_state_dict = classifier.module.state_dict()
         else:
-            classifier_state_dict classifier.state_dict()
+            classifier_state_dict = classifier.state_dict()
 
         # PyTorch saving recommendations: https://stackoverflow.com/a/49078976
         # Checkpoint every N epochs
