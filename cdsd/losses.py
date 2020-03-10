@@ -11,7 +11,7 @@ def get_energy_terms(x, labels, masks, energy_masking=None):
         mix_energy = x.view(batch_size, -1)
     else:
         frame_energy = x.sum(dim=2, keepdim=True)
-        threshold = frame_energy.max(dim=3)[0] * 0.01
+        threshold = frame_energy.max(dim=3, keepdim=True)[0] * 0.01
         energy_mask = (frame_energy >= threshold).float()
         mix_energy = (x * energy_mask).view(batch_size, -1)
 
