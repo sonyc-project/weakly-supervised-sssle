@@ -101,9 +101,6 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         save_config["classifier"]["latest_path"] = classifier_latest_ckpt_path
         json.dump(save_config, f)
 
-    # TODO: Need to take care of making sure data/model is properly loaded on
-    # target device
-
     num_epochs = train_config["training"]["num_epochs"]
     for epoch in range(num_epochs):
         print("=============== Epoch {}/{} =============== ".format(epoch+1, num_epochs))

@@ -71,12 +71,28 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
     # Set up models
     separator = construct_separator(train_config, dataset=train_dataset)
     classifier = construct_classifier(train_config, dataset=train_dataset)
-    multi_gpu = False
+    multi_gpu_separator = False
+    multi_gpu_classifier = False
     if torch.cuda.device_count() > 1:
-        print("Using {} GPUs for training.".format(torch.cuda.device_count()))
-        multi_gpu = True
-        separator = nn.DataParallel(separator)
-        classifier = nn.DataParallel(classifier)
+        num_separator_devices = torch.cuda.device_count() // 2
+        num_classifier_devices = torch.cuda.device_count() - num_separator_devices
+
+        print("Using {} GPUs for training separator.".format(num_separator_devices))
+        print("Using {} GPUs for training classifier.".format(num_separator_devices))
+        separator_devices = []
+        classifier_devices = []
+        for dev_idx in range(num_separator_devices):
+            separator_devices.append("cuda:{}".format(dev_idx))
+        for dev_idx in range(num_separator_devices, torch.cuda.device_count()):
+            classifier_devices.append("cuda:{}".format(dev_idx))
+
+        if num_separator_devices > 1:
+            multi_gpu_separator = True
+            separator = nn.DataParallel(separator, device_ids=separator_devices)
+        if num_classifier_devices > 1:
+            multi_gpu_classifier = True
+            classifier = nn.DataParallel(classifier, device_ids=classifier_devices)
+
     separator.to(device)
     classifier.to(device)
 
@@ -114,8 +130,6 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         save_config["classifier"]["latest_path"] = classifier_latest_ckpt_path
         json.dump(save_config, f)
 
-    # TODO: Need to take care of making sure data/model is properly loaded on
-    # target device
     num_epochs = train_config["training"]["num_epochs"]
     for epoch in range(num_epochs):
         print("=============== Epoch {}/{} =============== ".format(epoch + 1, num_epochs))
@@ -209,15 +223,19 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         history_logger.log(epoch, train_mix_loss, train_cls_loss, train_tot_loss,
                            valid_mix_loss, valid_cls_loss, valid_tot_loss)
 
-        if multi_gpu:
+        if multi_gpu_separator:
             separator_state_dict = separator.module.state_dict()
-            classifier_state_dict = classifier.module.state_dict()
         else:
             separator_state_dict = separator.state_dict()
+
+        if multi_gpu_classifier:
+            classifier_state_dict = classifier.module.state_dict()
+        else:
             classifier_state_dict = classifier.state_dict()
 
         # PyTorch saving recommendations: https://stackoverflow.com/a/49078976
         # Checkpoint every N epochs
+        h
         if epoch % checkpoint_interval:
             separator_ckpt_path = os.path.join(output_dir, "separator_epoch-{}.pt".format(epoch))
             classifier_ckpt_path = os.path.join(output_dir, "classifier_epoch-{}.pt".format(epoch))
