@@ -73,6 +73,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
     classifier = construct_classifier(train_config, dataset=train_dataset)
     multi_gpu_separator = False
     multi_gpu_classifier = False
+    separator_device = device
+    classifier_device = device
     if torch.cuda.device_count() > 1:
         num_separator_devices = torch.cuda.device_count() // 2
         num_classifier_devices = torch.cuda.device_count() - num_separator_devices
@@ -89,12 +91,14 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         if num_separator_devices > 1:
             multi_gpu_separator = True
             separator = nn.DataParallel(separator, device_ids=separator_devices)
+            separator_device = torch.device(separator_devices[0])
         if num_classifier_devices > 1:
             multi_gpu_classifier = True
             classifier = nn.DataParallel(classifier, device_ids=classifier_devices)
+            classifier_device = torch.device(classifier_devices[0])
 
-    separator.to(device)
-    classifier.to(device)
+    separator.to(separator_device)
+    classifier.to(classifier_device)
 
     # JTC: Should we still provide params with requires_grad=False here?
     optimizer = get_optimizer(chain(separator.parameters(), classifier.parameters()),
@@ -117,6 +121,9 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
     separator_latest_ckpt_path = os.path.join(output_dir, "separator_latest.pt")
     classifier_latest_ckpt_path = os.path.join(output_dir, "classifier_latest.pt")
     optimizer_latest_ckpt_path = os.path.join(output_dir, "optimizer_latest.pt")
+
+    import pdb
+    pdb.set_trace()
 
     config_path = os.path.join(output_dir, "config.json")
     with open(config_path, 'w') as f:
@@ -142,8 +149,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
 
         print(" **** Training ****")
         for batch in tqdm(train_dataloader, total=num_train_batches):
-            x = batch["audio_data"].to(device)
-            labels = batch["labels"].to(device)
+            x = batch["audio_data"].to(separator_device)
+            labels = batch["labels"].to(separator_device)
 
             # Forward pass through separator
             masks = separator(x)
@@ -152,12 +159,12 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
             train_cls_loss = None
             for idx in range(train_dataset.num_labels):
                 mask = masks[..., idx]
-                x_masked = x * mask
+                x_masked = (x * mask).to(classifier_device)
                 output = classifier(x_masked)
 
                 # Create target
-                target = torch.zeros_like(labels)
-                target[:, idx] = labels[:, idx]
+                target = torch.zeros_like(labels).to(classifier_device)
+                target[:, idx] = labels[:, idx].to(classifier_device)
 
                 # Accumulate classification loss for each source type
                 if train_cls_loss is None:
@@ -181,8 +188,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         # Evaluate on validation set
         print(" **** Validation ****")
         for batch in tqdm(valid_dataloader, total=num_valid_batches):
-            x = batch["audio_data"].to(device)
-            labels = batch["labels"].to(device)
+            x = batch["audio_data"].to(separator_device)
+            labels = batch["labels"].to(separator_device)
 
             # Forward pass through separator
             masks = separator(x)
@@ -191,12 +198,12 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
             valid_cls_loss = None
             for idx in range(train_dataset.num_labels):
                 mask = masks[..., idx]
-                x_masked = x * mask
+                x_masked = (x * mask).to(classifier_device)
                 output = classifier(x_masked)
 
                 # Create target
-                target = torch.zeros_like(labels)
-                target[:, idx] = labels[:, idx]
+                target = torch.zeros_like(labels).to(classifier_device)
+                target[:, idx] = labels[:, idx].to(classifier_device)
 
                 # Accumulate classification loss for each source type
                 if valid_cls_loss is None:

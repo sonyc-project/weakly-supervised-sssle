@@ -21,12 +21,12 @@ module load cuda/10.1.105
 module load cudnn/10.1v7.6.5.32
 source activate cdsd
 
-python -u /home/jtc440/dev/class_dependent_spl_decomposition/cdsd/train_classifier.py \
-    /beegfs/jtc440/cdsd-data/pishdiadian2020-lambda5_soundscapes \
-    /home/jtc440/dev/class_dependent_spl_decomposition/resources/training_configs/pishdadian2020_crnn_classifier.json \
-    /scratch/jtc440/cdsd/models/pishdadian2020_crnn_classifier \
-    --num-data-workers 2 \
-    --checkpoint-interval 5
+# python -u /home/jtc440/dev/class_dependent_spl_decomposition/cdsd/train_classifier.py \
+#     /beegfs/jtc440/cdsd-data/pishdiadian2020-lambda5_soundscapes \
+#     /home/jtc440/dev/class_dependent_spl_decomposition/resources/training_configs/pishdadian2020_crnn_classifier.json \
+#     /scratch/jtc440/cdsd/models/pishdadian2020_crnn_classifier \
+#     --num-data-workers 2 \
+#     --checkpoint-interval 5
 
 python -u /home/jtc440/dev/class_dependent_spl_decomposition/cdsd/train_separator.py \
     /beegfs/jtc440/cdsd-data/pishdiadian2020-lambda5_soundscapes \
