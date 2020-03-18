@@ -112,12 +112,11 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         accum_valid_loss = 0.0
 
         print(" **** Training ****")
+        # Set models to train mode
+        classifier.train()
         for batch in tqdm(train_dataloader, total=num_train_batches):
             x = batch["audio_data"].to(device)
             labels = batch["labels"].to(device)
-
-            # Set models to train mode
-            classifier.train()
 
             # Clear gradients
             optimizer.zero_grad()
@@ -131,25 +130,26 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
             # Accumulate loss for epoch
             accum_train_loss += train_loss.item()
 
-            del batch
+            # Cleanup
+            del x, labels, batch, x_masked, output, train_loss
 
         # Evaluate on validation set
         print(" **** Validation ****")
-        for batch in tqdm(valid_dataloader, total=num_valid_batches):
-            x = batch["audio_data"].to(device)
-            labels = batch["labels"].to(device)
+        # Set models to eval mode
+        classifier.eval()
+        with torch.no_grad():
+            for batch in tqdm(valid_dataloader, total=num_valid_batches):
+                x = batch["audio_data"].to(device)
+                labels = batch["labels"].to(device)
 
-            # Set models to eval mode
-            classifier.eval()
+                output = classifier(x)
 
-            output = classifier(x)
+                valid_loss = bce_loss_obj(output, labels)
 
-            valid_loss = bce_loss_obj(output, labels)
+                # Accumulate loss for epoch
+                accum_valid_loss += valid_loss.item()
 
-            # Accumulate loss for epoch
-            accum_valid_loss += valid_loss.item()
-
-            del batch
+                del batch
 
         train_loss = accum_train_loss / num_train_batches
         valid_loss = accum_valid_loss / num_valid_batches

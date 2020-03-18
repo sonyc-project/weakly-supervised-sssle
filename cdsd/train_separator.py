@@ -131,13 +131,15 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         accum_valid_total_loss = 0.0
 
         print(" **** Training ****")
-        for batch in tqdm(train_dataloader, total=num_train_batches):
+        # Set models to train mode
+        separator.train()
+        classifier.train()
+        for batch_idx, batch in enumerate(tqdm(train_dataloader, total=num_train_batches)):
             x = batch["audio_data"].to(device)
             labels = batch["labels"].to(device)
 
-            # Set models to train mode
-            separator.train()
-            classifier.train()
+            if epoch == 0 and batch_idx == 0:
+                print("Input size: {}".format(x.size()))
 
             # Clear gradients
             optimizer.zero_grad()
@@ -178,50 +180,53 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
             accum_train_cls_loss += train_cls_loss.item()
             accum_train_total_loss += train_total_loss.item()
 
-            del batch
+            # Cleanup
+            del x, labels, masks, batch, mask, x_masked, output, \
+                train_cls_loss, train_mix_loss, train_total_loss
 
         # Evaluate on validation set
         print(" **** Validation ****")
-        for batch in tqdm(valid_dataloader, total=num_valid_batches):
-            x = batch["audio_data"].to(device)
-            labels = batch["labels"].to(device)
+        with torch.no_grad():
+            for batch in tqdm(valid_dataloader, total=num_valid_batches):
+                x = batch["audio_data"].to(device)
+                labels = batch["labels"].to(device)
 
-            # Set models to eval mode
-            separator.eval()
-            classifier.eval()
+                # Set models to eval mode
+                separator.eval()
+                classifier.eval()
 
-            # Forward pass through separator
-            masks = separator(x)
+                # Forward pass through separator
+                masks = separator(x)
 
-            # Pass reconstructed sources through classifier
-            valid_cls_loss = None
-            for idx in range(train_dataset.num_labels):
-                mask = masks[..., idx]
-                x_masked = (x * mask).to(device)
-                output = classifier(x_masked)
+                # Pass reconstructed sources through classifier
+                valid_cls_loss = None
+                for idx in range(train_dataset.num_labels):
+                    mask = masks[..., idx]
+                    x_masked = (x * mask).to(device)
+                    output = classifier(x_masked)
 
-                # Create target
-                target = torch.zeros_like(labels).to(device)
-                target[:, idx] = labels[:, idx].to(device)
+                    # Create target
+                    target = torch.zeros_like(labels).to(device)
+                    target[:, idx] = labels[:, idx].to(device)
 
-                # Accumulate classification loss for each source type
-                if valid_cls_loss is None:
-                    valid_cls_loss = bce_loss_obj(output, target)
-                else:
-                    valid_cls_loss += bce_loss_obj(output, target)
+                    # Accumulate classification loss for each source type
+                    if valid_cls_loss is None:
+                        valid_cls_loss = bce_loss_obj(output, target)
+                    else:
+                        valid_cls_loss += bce_loss_obj(output, target)
 
-            assert valid_cls_loss is not None
+                assert valid_cls_loss is not None
 
-            valid_mix_loss = mixture_loss_fn(x, labels, masks)
-            valid_total_loss = valid_mix_loss * mixture_loss_weight + valid_cls_loss * cls_loss_weight
+                valid_mix_loss = mixture_loss_fn(x, labels, masks)
+                valid_total_loss = valid_mix_loss * mixture_loss_weight + valid_cls_loss * cls_loss_weight
 
-            # Accumulate loss for epoch
-            accum_valid_mix_loss += valid_mix_loss.item()
-            accum_valid_cls_loss += valid_cls_loss.item()
-            accum_valid_total_loss += valid_total_loss.item()
+                # Accumulate loss for epoch
+                accum_valid_mix_loss += valid_mix_loss.item()
+                accum_valid_cls_loss += valid_cls_loss.item()
+                accum_valid_total_loss += valid_total_loss.item()
 
-            # Help garbage collection
-            del batch
+                # Help garbage collection
+                del batch
 
         train_mix_loss = accum_train_mix_loss / num_train_batches
         train_cls_loss = accum_train_cls_loss / num_train_batches
