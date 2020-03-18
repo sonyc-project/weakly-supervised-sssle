@@ -37,6 +37,10 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1):
     # Set up device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+    # Memory hack: https://discuss.pytorch.org/t/solved-pytorch-conv2d-consumes-more-gpu-memory-than-tensorflow/28998/2
+    torch.backends.cudnn.deterministic = True
+    #torch.backends.cudnn.benchmark = True
+
     # Create output directory
     output_dir = output_dir or train_config["output_dir"]
     os.makedirs(output_dir, exist_ok=True)
@@ -56,6 +60,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1):
         print("Using {} GPUs for evaluation.".format(torch.cuda.device_count()))
         classifier = nn.DataParallel(classifier)
     classifier.to(device)
+    classifier.eval()
 
     for subset in ('train', 'valid', 'test'):
         print('====== Evaluating subset "{}" ======'.format(subset))
@@ -83,6 +88,8 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1):
             for idx, label in enumerate(train_dataset.labels):
                 subset_results[label + "_presence_gt"] += labels[:, idx].tolist()
                 subset_results[label + "_presence_pred"] += pred[:, idx].tolist()
+
+            del batch
 
         # Save results as CSV
         subset_df = pd.DataFrame(subset_results)

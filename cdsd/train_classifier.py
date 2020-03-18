@@ -43,6 +43,10 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
     # Set up device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+    # Memory hack: https://discuss.pytorch.org/t/solved-pytorch-conv2d-consumes-more-gpu-memory-than-tensorflow/28998/2
+    torch.backends.cudnn.deterministic = True
+    #torch.backends.cudnn.benchmark = True
+
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
 
@@ -111,6 +115,13 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         for batch in tqdm(train_dataloader, total=num_train_batches):
             x = batch["audio_data"].to(device)
             labels = batch["labels"].to(device)
+
+            # Set models to train mode
+            classifier.train()
+
+            # Clear gradients
+            optimizer.zero_grad()
+
             output = classifier(x)
 
             train_loss = bce_loss_obj(output, labels)
@@ -120,17 +131,25 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
             # Accumulate loss for epoch
             accum_train_loss += train_loss.item()
 
+            del batch
+
         # Evaluate on validation set
         print(" **** Validation ****")
         for batch in tqdm(valid_dataloader, total=num_valid_batches):
             x = batch["audio_data"].to(device)
             labels = batch["labels"].to(device)
+
+            # Set models to eval mode
+            classifier.eval()
+
             output = classifier(x)
 
             valid_loss = bce_loss_obj(output, labels)
 
             # Accumulate loss for epoch
             accum_valid_loss += valid_loss.item()
+
+            del batch
 
         train_loss = accum_train_loss / num_train_batches
         valid_loss = accum_valid_loss / num_valid_batches
@@ -157,7 +176,6 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         torch.save(classifier_state_dict, classifier_latest_ckpt_path)
         torch.save(optimizer.state_dict(), optimizer_latest_ckpt_path)
 
-    history_logger.close()
     print("Finished training. Results available at {}".format(output_dir))
 
 

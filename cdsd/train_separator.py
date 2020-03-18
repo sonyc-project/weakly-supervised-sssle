@@ -45,6 +45,10 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
     # Set up device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+    # Memory hack: https://discuss.pytorch.org/t/solved-pytorch-conv2d-consumes-more-gpu-memory-than-tensorflow/28998/2
+    torch.backends.cudnn.deterministic = True
+    #torch.backends.cudnn.benchmark = True
+
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
 
@@ -71,34 +75,16 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
     # Set up models
     separator = construct_separator(train_config, dataset=train_dataset)
     classifier = construct_classifier(train_config, dataset=train_dataset)
-    multi_gpu_separator = False
-    multi_gpu_classifier = False
-    separator_device = device
-    classifier_device = device
+    multi_gpu = False
     if torch.cuda.device_count() > 1:
-        num_separator_devices = torch.cuda.device_count() // 2
-        num_classifier_devices = torch.cuda.device_count() - num_separator_devices
+        num_devices = torch.cuda.device_count()
+        multi_gpu = True
+        print("Using {} GPUs for training.".format(num_devices))
+        separator = nn.DataParallel(separator)
+        classifier = nn.DataParallel(classifier)
 
-        print("Using {} GPUs for training separator.".format(num_separator_devices))
-        print("Using {} GPUs for training classifier.".format(num_separator_devices))
-        separator_devices = []
-        classifier_devices = []
-        for dev_idx in range(num_separator_devices):
-            separator_devices.append("cuda:{}".format(dev_idx))
-        for dev_idx in range(num_separator_devices, torch.cuda.device_count()):
-            classifier_devices.append("cuda:{}".format(dev_idx))
-
-        if num_separator_devices > 1:
-            multi_gpu_separator = True
-            separator = nn.DataParallel(separator, device_ids=separator_devices)
-            separator_device = torch.device(separator_devices[0])
-        if num_classifier_devices > 1:
-            multi_gpu_classifier = True
-            classifier = nn.DataParallel(classifier, device_ids=classifier_devices)
-            classifier_device = torch.device(classifier_devices[0])
-
-    separator.to(separator_device)
-    classifier.to(classifier_device)
+    separator.to(device)
+    classifier.to(device)
 
     # JTC: Should we still provide params with requires_grad=False here?
     optimizer = get_optimizer(chain(separator.parameters(), classifier.parameters()),
@@ -121,9 +107,6 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
     separator_latest_ckpt_path = os.path.join(output_dir, "separator_latest.pt")
     classifier_latest_ckpt_path = os.path.join(output_dir, "classifier_latest.pt")
     optimizer_latest_ckpt_path = os.path.join(output_dir, "optimizer_latest.pt")
-
-    import pdb
-    pdb.set_trace()
 
     config_path = os.path.join(output_dir, "config.json")
     with open(config_path, 'w') as f:
@@ -149,8 +132,15 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
 
         print(" **** Training ****")
         for batch in tqdm(train_dataloader, total=num_train_batches):
-            x = batch["audio_data"].to(separator_device)
-            labels = batch["labels"].to(separator_device)
+            x = batch["audio_data"].to(device)
+            labels = batch["labels"].to(device)
+
+            # Set models to train mode
+            separator.train()
+            classifier.train()
+
+            # Clear gradients
+            optimizer.zero_grad()
 
             # Forward pass through separator
             masks = separator(x)
@@ -159,12 +149,12 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
             train_cls_loss = None
             for idx in range(train_dataset.num_labels):
                 mask = masks[..., idx]
-                x_masked = (x * mask).to(classifier_device)
+                x_masked = (x * mask).to(device)
                 output = classifier(x_masked)
 
                 # Create target
-                target = torch.zeros_like(labels).to(classifier_device)
-                target[:, idx] = labels[:, idx].to(classifier_device)
+                target = torch.zeros_like(labels).to(device)
+                target[:, idx] = labels[:, idx].to(device)
 
                 # Accumulate classification loss for each source type
                 if train_cls_loss is None:
@@ -176,7 +166,10 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
 
             train_mix_loss = mixture_loss_fn(x, labels, masks)
 
+            # Accumulate loss
             train_total_loss = train_mix_loss * mixture_loss_weight + train_cls_loss * cls_loss_weight
+
+            # Backprop
             train_total_loss.backward()
             optimizer.step()
 
@@ -185,11 +178,17 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
             accum_train_cls_loss += train_cls_loss.item()
             accum_train_total_loss += train_total_loss.item()
 
+            del batch
+
         # Evaluate on validation set
         print(" **** Validation ****")
         for batch in tqdm(valid_dataloader, total=num_valid_batches):
-            x = batch["audio_data"].to(separator_device)
-            labels = batch["labels"].to(separator_device)
+            x = batch["audio_data"].to(device)
+            labels = batch["labels"].to(device)
+
+            # Set models to eval mode
+            separator.eval()
+            classifier.eval()
 
             # Forward pass through separator
             masks = separator(x)
@@ -198,12 +197,12 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
             valid_cls_loss = None
             for idx in range(train_dataset.num_labels):
                 mask = masks[..., idx]
-                x_masked = (x * mask).to(classifier_device)
+                x_masked = (x * mask).to(device)
                 output = classifier(x_masked)
 
                 # Create target
-                target = torch.zeros_like(labels).to(classifier_device)
-                target[:, idx] = labels[:, idx].to(classifier_device)
+                target = torch.zeros_like(labels).to(device)
+                target[:, idx] = labels[:, idx].to(device)
 
                 # Accumulate classification loss for each source type
                 if valid_cls_loss is None:
@@ -221,6 +220,9 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
             accum_valid_cls_loss += valid_cls_loss.item()
             accum_valid_total_loss += valid_total_loss.item()
 
+            # Help garbage collection
+            del batch
+
         train_mix_loss = accum_train_mix_loss / num_train_batches
         train_cls_loss = accum_train_cls_loss / num_train_batches
         train_tot_loss = accum_train_total_loss / num_train_batches
@@ -230,14 +232,11 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         history_logger.log(epoch, train_mix_loss, train_cls_loss, train_tot_loss,
                            valid_mix_loss, valid_cls_loss, valid_tot_loss)
 
-        if multi_gpu_separator:
+        if multi_gpu:
             separator_state_dict = separator.module.state_dict()
-        else:
-            separator_state_dict = separator.state_dict()
-
-        if multi_gpu_classifier:
             classifier_state_dict = classifier.module.state_dict()
         else:
+            separator_state_dict = separator.state_dict()
             classifier_state_dict = classifier.state_dict()
 
         # PyTorch saving recommendations: https://stackoverflow.com/a/49078976
@@ -260,7 +259,6 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         torch.save(classifier_state_dict, classifier_latest_ckpt_path)
         torch.save(optimizer.state_dict(), optimizer_latest_ckpt_path)
 
-    history_logger.close()
     print("Finished training. Results available at {}".format(output_dir))
 
 

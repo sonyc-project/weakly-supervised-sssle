@@ -70,6 +70,10 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
     # Set up device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+    # Memory hack: https://discuss.pytorch.org/t/solved-pytorch-conv2d-consumes-more-gpu-memory-than-tensorflow/28998/2
+    torch.backends.cudnn.deterministic = True
+    #torch.backends.cudnn.benchmark = True
+
     # Create output directory
     output_dir = output_dir or train_config["output_dir"]
     os.makedirs(output_dir, exist_ok=True)
@@ -113,6 +117,8 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
         classifier = nn.DataParallel(classifier)
     separator.to(device)
     classifier.to(device)
+    separator.eval()
+    classifier.eval()
 
     batch_size = train_config["training"]["batch_size"]
 
@@ -251,6 +257,8 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                     recon_out_path = os.path.join(recon_masks_dir, "{}_{}_recon.npy".format(file, label))
                     mask = masks[f_idx, ..., idx].cpu().numpy()
                     np.save(recon_out_path, mask)
+
+            del batch
 
         # Save results as CSV
         subset_df = pd.DataFrame(subset_results)

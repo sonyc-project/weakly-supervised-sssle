@@ -37,9 +37,6 @@ class CDSDHistoryLogger(object):
         # SHOULD ONLY BE CALLED AFTER CALLING *.log()
         return self.best_valid_loss_flag
 
-    def close(self):
-        self.file.close()
-
 
 class ClassifierHistoryLogger(object):
     def __init__(self, path):
@@ -70,6 +67,3 @@ class ClassifierHistoryLogger(object):
     def valid_loss_improved(self):
         # SHOULD ONLY BE CALLED AFTER CALLING *.log()
         return self.best_valid_loss_flag
-
-    def close(self):
-        self.file.close()
