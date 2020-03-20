@@ -132,6 +132,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
 
             # Cleanup
             del x, labels, batch, x_masked, output, train_loss
+            torch.cuda.empty_cache()
 
         # Evaluate on validation set
         print(" **** Validation ****")
@@ -149,7 +150,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
                 # Accumulate loss for epoch
                 accum_valid_loss += valid_loss.item()
 
-                del batch
+                del x, labels, batch, output, valid_loss
+                torch.cuda.empty_cache()
 
         train_loss = accum_train_loss / num_train_batches
         valid_loss = accum_valid_loss / num_valid_batches

@@ -122,143 +122,156 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
 
     batch_size = train_config["training"]["batch_size"]
 
-    for subset in ('train', 'valid', 'test'):
-        print('====== Evaluating subset "{}" ======'.format(subset))
-        dataset = CDSDDataset(root_data_dir,
-                              subset=subset,
-                              transform=input_transform,
-                              load_separation_data=True)
-        dataloader = DataLoader(dataset, batch_size=batch_size,
-                                shuffle=False, pin_memory=True,
-                                num_workers=num_data_workers)
-        num_batches = len(dataloader)
+    with torch.no_grad():
+        for subset in ('train', 'valid', 'test'):
+            print('====== Evaluating subset "{}" ======'.format(subset))
+            dataset = CDSDDataset(root_data_dir,
+                                  subset=subset,
+                                  transform=input_transform,
+                                  load_separation_data=True)
+            dataloader = DataLoader(dataset, batch_size=batch_size,
+                                    shuffle=False, pin_memory=True,
+                                    num_workers=num_data_workers)
+            num_batches = len(dataloader)
 
-        # Initialize results lists
-        subset_results = {"filenames": list(dataset.files)} # Assuming that dataloader preserves order
-        subset_results.update({label + "_input_sisdr": [] for label in dataset.labels})
-        subset_results.update({label + "_sisdr_improvement": [] for label in dataset.labels})
+            # Initialize results lists
+            subset_results = {"filenames": list(dataset.files)} # Assuming that dataloader preserves order
+            subset_results.update({label + "_input_sisdr": [] for label in dataset.labels})
+            subset_results.update({label + "_sisdr_improvement": [] for label in dataset.labels})
 
-        subset_results.update({"mixture_dbfs": []})
-        subset_results.update({"isolated_" + label + "_dbfs": [] for label in dataset.labels})
-        subset_results.update({"reconstructed_" + label + "_dbfs": [] for label in dataset.labels})
+            subset_results.update({"mixture_dbfs": []})
+            subset_results.update({"isolated_" + label + "_dbfs": [] for label in dataset.labels})
+            subset_results.update({"reconstructed_" + label + "_dbfs": [] for label in dataset.labels})
 
-        subset_results.update({label + "_input_sisdr": [] for label in dataset.labels})
-        subset_results.update({label + "_sisdr_improvement": [] for label in dataset.labels})
+            subset_results.update({label + "_input_sisdr": [] for label in dataset.labels})
+            subset_results.update({label + "_sisdr_improvement": [] for label in dataset.labels})
 
-        subset_results.update({label + "_presence_gt": [] for label in dataset.labels})
-        subset_results.update({"mixture_pred_" + label: [] for label in dataset.labels})
-        subset_results.update({"isolated_" + gt_label + "_pred_" + pred_label: [] for gt_label in dataset.labels for pred_label in dataset.labels})
-        subset_results.update({"reconstructed_" + gt_label + "_pred_" + pred_label: [] for gt_label in dataset.labels for pred_label in dataset.labels})
+            subset_results.update({label + "_presence_gt": [] for label in dataset.labels})
+            subset_results.update({"mixture_pred_" + label: [] for label in dataset.labels})
+            subset_results.update({"isolated_" + gt_label + "_pred_" + pred_label: [] for gt_label in dataset.labels for pred_label in dataset.labels})
+            subset_results.update({"reconstructed_" + gt_label + "_pred_" + pred_label: [] for gt_label in dataset.labels for pred_label in dataset.labels})
 
-        subset_results_path = os.path.join(output_dir, "separation_results_{}.csv".format(subset))
+            subset_results_path = os.path.join(output_dir, "separation_results_{}.csv".format(subset))
 
-        for batch in tqdm(dataloader, total=num_batches):
-            x = batch["audio_data"].to(device)
-            labels = batch["labels"].to(device)
-            mixture_waveforms = batch["mixture_waveform"].to(device)
+            for batch in tqdm(dataloader, total=num_batches):
+                x = batch["audio_data"].to(device)
+                labels = batch["labels"].to(device)
+                mixture_waveforms = batch["mixture_waveform"].to(device)
 
-            # Compute cosine and sine of phase spectrogram for reconstruction
-            mixture_maggram, mixture_phasegram = magphase(spectrogram(
-                mixture_waveforms,
-                pad=spec_params["pad"],
-                window=spec_params["window_fn"](
-                    window_length=spec_params["win_length"],
-                    **spec_params["wkwargs"]).to(device),
-                n_fft=spec_params["n_fft"],
-                hop_length=spec_params["hop_length"],
-                win_length=spec_params["win_length"],
-                power=None,
-                normalized=spec_params["normalized"]), power=1.0)
-
-            # Sanity check
-            assert torch.allclose(x, mixture_maggram, atol=1e-7)
-
-            cos_phasegram = torch.cos(mixture_phasegram)
-            sin_phasegram = torch.sin(mixture_phasegram)
-
-            # Run separator on mixture to obtain masks
-            masks = separator(x)
-
-            # Run classifier on mixture for later analysis
-            mixture_cls_pred = classifier(x)
-
-            if save_audio:
-                recon_audio_dir = os.path.join(output_dir, "reconstructed_audio")
-                os.makedirs(recon_audio_dir, exist_ok=True)
-            recon_masks_dir = os.path.join(output_dir, "reconstructed_masks")
-            os.makedirs(recon_masks_dir, exist_ok=True)
-
-            # Compute dBFS for the mixture
-            subset_results["mixture_dbfs"] += compute_dbfs(mixture_waveforms, SAMPLE_RATE, device=device).squeeze().tolist()
-
-            for idx, label in enumerate(train_dataset.labels):
-                source_waveforms = batch[label + "_waveform"].to(device)
-                source_maggram = batch[label + "_transformed"].to(device)
-
-                # Reconstruct source audio
-                recon_source_maggram = x * masks[..., idx]
-                recon_source_stft = torch.zeros(x.size() + (2,)).to(device)
-                recon_source_stft[..., 0] = recon_source_maggram * cos_phasegram
-                recon_source_stft[..., 1] = recon_source_maggram * sin_phasegram
-                recon_source_waveforms = istft(
-                    recon_source_stft,
+                # Compute cosine and sine of phase spectrogram for reconstruction
+                mixture_maggram, mixture_phasegram = magphase(spectrogram(
+                    mixture_waveforms,
+                    pad=spec_params["pad"],
                     window=spec_params["window_fn"](
-                        window_length=spec_params["win_length"], **spec_params["wkwargs"]).to(device),
+                        window_length=spec_params["win_length"],
+                        **spec_params["wkwargs"]).to(device),
                     n_fft=spec_params["n_fft"],
                     hop_length=spec_params["hop_length"],
                     win_length=spec_params["win_length"],
-                    normalized=spec_params["normalized"],
-                    onesided=True,
-                    center=True,
-                    pad_mode="reflect")
+                    power=None,
+                    normalized=spec_params["normalized"]), power=1.0)
 
-                # Compute dBFS for the isolated and reconstructed sources
-                subset_results["isolated_" + label + "_dbfs"] += compute_dbfs(source_waveforms, SAMPLE_RATE, device=device).squeeze().tolist()
-                subset_results["reconstructed_" + label + "_dbfs"] += compute_dbfs(recon_source_waveforms, SAMPLE_RATE, device=device).squeeze().tolist()
+                # Sanity check
+                assert torch.allclose(x, mixture_maggram, atol=1e-7)
 
-                # Compute SI-SDR with mixture as estimated source
-                input_sisdr = compute_sisdr(mixture_waveforms, source_waveforms)
-                # Compute SI-SDR improvement using reconstructed sources
-                sisdr_imp = compute_sisdr(recon_source_waveforms, source_waveforms) - input_sisdr
+                cos_phasegram = torch.cos(mixture_phasegram)
+                sin_phasegram = torch.sin(mixture_phasegram)
 
-                # If label is not present, then set SDR to NaN
-                # Removing for now, we can always do this masking later...
-                # sisdr_imp[torch.logical_not(labels[..., idx].bool())] = float('nan')
+                # Run separator on mixture to obtain masks
+                masks = separator(x)
 
-                # Run classifier on isolated source for later analysis
-                source_cls_pred = classifier(source_maggram)
-                for pred_idx, pred_label in enumerate(train_dataset.labels):
-                    subset_results["isolated_" + label + "_pred_" + pred_label] += source_cls_pred[:, pred_idx].tolist()
-
-                # Run classifier on reconstructed source for later analysis
-                source_cls_pred = classifier(recon_source_maggram)
-                for pred_idx, pred_label in enumerate(train_dataset.labels):
-                    subset_results["reconstructed_" + label + "_pred_" + pred_label] += source_cls_pred[:, pred_idx].tolist()
-
-                # Save source separation metrics
-                subset_results[label + "_input_sisdr"] += input_sisdr.tolist()
-                subset_results[label + "_sisdr_improvement"] += sisdr_imp.tolist()
-
-                # Save ground truth labels and mixture classification results (since we're already iterating through labels)
-                subset_results[label + "_presence_gt"] += labels[:, idx].tolist()
-                subset_results["mixture_pred_" + label] += mixture_cls_pred[:, idx].tolist()
+                # Run classifier on mixture for later analysis
+                mixture_cls_pred = classifier(x)
 
                 if save_audio:
-                    for f_idx in range(recon_source_waveforms.size()[0]):
+                    recon_audio_dir = os.path.join(output_dir, "reconstructed_audio")
+                    os.makedirs(recon_audio_dir, exist_ok=True)
+                recon_masks_dir = os.path.join(output_dir, "reconstructed_masks")
+                os.makedirs(recon_masks_dir, exist_ok=True)
+
+                # Compute dBFS for the mixture
+                subset_results["mixture_dbfs"] += compute_dbfs(mixture_waveforms, SAMPLE_RATE, device=device).squeeze().tolist()
+
+                for idx, label in enumerate(train_dataset.labels):
+                    source_waveforms = batch[label + "_waveform"].to(device)
+                    source_maggram = batch[label + "_transformed"].to(device)
+
+                    # Reconstruct source audio
+                    recon_source_maggram = x * masks[..., idx]
+                    recon_source_stft = torch.zeros(x.size() + (2,)).to(device)
+                    recon_source_stft[..., 0] = recon_source_maggram * cos_phasegram
+                    recon_source_stft[..., 1] = recon_source_maggram * sin_phasegram
+                    recon_source_waveforms = istft(
+                        recon_source_stft,
+                        window=spec_params["window_fn"](
+                            window_length=spec_params["win_length"], **spec_params["wkwargs"]).to(device),
+                        n_fft=spec_params["n_fft"],
+                        hop_length=spec_params["hop_length"],
+                        win_length=spec_params["win_length"],
+                        normalized=spec_params["normalized"],
+                        onesided=True,
+                        center=True,
+                        pad_mode="reflect")
+
+                    # Compute dBFS for the isolated and reconstructed sources
+                    subset_results["isolated_" + label + "_dbfs"] += compute_dbfs(source_waveforms, SAMPLE_RATE, device=device).squeeze().tolist()
+                    subset_results["reconstructed_" + label + "_dbfs"] += compute_dbfs(recon_source_waveforms, SAMPLE_RATE, device=device).squeeze().tolist()
+
+                    # Compute SI-SDR with mixture as estimated source
+                    input_sisdr = compute_sisdr(mixture_waveforms, source_waveforms)
+                    # Compute SI-SDR improvement using reconstructed sources
+                    sisdr_imp = compute_sisdr(recon_source_waveforms, source_waveforms) - input_sisdr
+
+                    # If label is not present, then set SDR to NaN
+                    # Removing for now, we can always do this masking later...
+                    # sisdr_imp[torch.logical_not(labels[..., idx].bool())] = float('nan')
+
+                    # Run classifier on isolated source for later analysis
+                    source_cls_pred = classifier(source_maggram)
+                    for pred_idx, pred_label in enumerate(train_dataset.labels):
+                        subset_results["isolated_" + label + "_pred_" + pred_label] += source_cls_pred[:, pred_idx].tolist()
+
+                    # Run classifier on reconstructed source for later analysis
+                    source_cls_pred = classifier(recon_source_maggram)
+                    for pred_idx, pred_label in enumerate(train_dataset.labels):
+                        subset_results["reconstructed_" + label + "_pred_" + pred_label] += source_cls_pred[:, pred_idx].tolist()
+
+                    # Save source separation metrics
+                    subset_results[label + "_input_sisdr"] += input_sisdr.tolist()
+                    subset_results[label + "_sisdr_improvement"] += sisdr_imp.tolist()
+
+                    # Save ground truth labels and mixture classification results (since we're already iterating through labels)
+                    subset_results[label + "_presence_gt"] += labels[:, idx].tolist()
+                    subset_results["mixture_pred_" + label] += mixture_cls_pred[:, idx].tolist()
+
+                    if save_audio:
+                        for f_idx in range(recon_source_waveforms.size()[0]):
+                            file = dataset.files[idx * batch_size + f_idx]
+                            recon_out_path = os.path.join(recon_audio_dir, "{}_{}_recon.wav".format(file, label))
+                            torchaudio.save(recon_out_path,
+                                            recon_source_waveforms[f_idx, :].cpu(),
+                                            sample_rate=SAMPLE_RATE)
+
+                    # Save masks for analysis and debugging
+                    for f_idx in range(masks.size()[0]):
                         file = dataset.files[idx * batch_size + f_idx]
-                        recon_out_path = os.path.join(recon_audio_dir, "{}_{}_recon.wav".format(file, label))
-                        torchaudio.save(recon_out_path,
-                                        recon_source_waveforms[f_idx, :].cpu(),
-                                        sample_rate=SAMPLE_RATE)
+                        recon_out_path = os.path.join(recon_masks_dir, "{}_{}_recon.npy".format(file, label))
+                        mask = masks[f_idx, ..., idx].cpu().numpy()
+                        np.save(recon_out_path, mask)
 
-                # Save masks for analysis and debugging
-                for f_idx in range(masks.size()[0]):
-                    file = dataset.files[idx * batch_size + f_idx]
-                    recon_out_path = os.path.join(recon_masks_dir, "{}_{}_recon.npy".format(file, label))
-                    mask = masks[f_idx, ..., idx].cpu().numpy()
-                    np.save(recon_out_path, mask)
 
-            del batch
+                x = batch["audio_data"].to(device)
+                labels = batch["labels"].to(device)
+                mixture_waveforms = batch["mixture_waveform"].to(device)
+                mixture_maggram, mixture_phasegram = magphase(spectrogram(
+                cos_phasegram = torch.cos(mixture_phasegram)
+                sin_phasegram = torch.sin(mixture_phasegram)
+                del x, labels, mixture_waveforms, mixture_maggram, \
+                    mixture_phasegram, cos_phasegram, sin_phasegram, \
+                    source_waveforms, source_maggram, recon_source_maggram, \
+                    recon_source_stft, recon_source_waveforms, input_sisdr, \
+                    sisdr_imp, source_cls_pred, batch
+                torch.cuda.empty_cache()
 
         # Save results as CSV
         subset_df = pd.DataFrame(subset_results)

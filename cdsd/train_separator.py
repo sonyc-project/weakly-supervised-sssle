@@ -134,7 +134,9 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         # Set models to train mode
         separator.train()
         classifier.train()
+        torch.cuda.empty_cache()
         for batch_idx, batch in enumerate(tqdm(train_dataloader, total=num_train_batches)):
+
             x = batch["audio_data"].to(device)
             labels = batch["labels"].to(device)
 
@@ -183,6 +185,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
             # Cleanup
             del x, labels, masks, batch, mask, x_masked, output, \
                 train_cls_loss, train_mix_loss, train_total_loss
+            torch.cuda.empty_cache()
 
         # Evaluate on validation set
         print(" **** Validation ****")
@@ -226,7 +229,9 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
                 accum_valid_total_loss += valid_total_loss.item()
 
                 # Help garbage collection
-                del batch
+                del x, labels, masks, batch, mask, x_masked, output, \
+                    valid_cls_loss, valid_mix_loss, valid_total_loss
+                torch.cuda.empty_cache()
 
         train_mix_loss = accum_train_mix_loss / num_train_batches
         train_cls_loss = accum_train_cls_loss / num_train_batches
@@ -246,7 +251,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
 
         # PyTorch saving recommendations: https://stackoverflow.com/a/49078976
         # Checkpoint every N epochs
-        h
+
         if epoch % checkpoint_interval:
             separator_ckpt_path = os.path.join(output_dir, "separator_epoch-{}.pt".format(epoch))
             classifier_ckpt_path = os.path.join(output_dir, "classifier_epoch-{}.pt".format(epoch))
