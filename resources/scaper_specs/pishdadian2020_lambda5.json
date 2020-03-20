@@ -1,0 +1,59 @@
+{
+    "spec_label": "pishdadidan2020_lambda5",
+    "ref_db": -50,
+    "duration": 4.0,
+    "sample_rate": 16000,
+    "protected_labels": [
+        "car_horn",
+        "dog_bark",
+        "gun_shot",
+        "jackhammer",
+        "siren"
+    ],
+
+    "num_events": {
+        "dist": "ztpoisson",
+        "rate": 5
+    },
+
+    "allow_repeated_label": true,
+    "allow_repeated_source": false,
+    "reverb": null,
+
+    "event_time": {
+        "dist": "uniform",
+        "min": 0.0,
+        "max": 4.0
+    },
+
+    "background_label": null,
+    "event_label": {
+        "dist": "choose",
+        "valuelist": [
+            "car_horn",
+            "dog_bark",
+            "gun_shot",
+            "jackhammer",
+            "siren"
+        ]
+    },
+    "event_source_file": {
+        "dist": "choose",
+        "valuelist": []
+    },
+    "event_source_time": {
+        "dist": "const",
+        "value": 0.0
+    },
+    "event_duration": {
+        "dist": "const",
+        "value": 4.0
+    },
+    "snr": {
+        "dist": "uniform",
+        "min": -30,
+        "max": -25
+    },
+    "pitch_shift": null,
+    "time_stretch": null
+}
