@@ -6,7 +6,8 @@ class CDSDHistoryLogger(object):
         self.path = path
         self.field_names = ["epoch", "train_mix_loss", "train_cls_loss", "train_tot_loss",
                             "valid_mix_loss", "valid_cls_loss", "valid_tot_loss"]
-        with open(self.path, 'a') as f:
+        # Use write mode first instead of append to clear any existing files
+        with open(self.path, 'w') as f:
             writer = DictWriter(f, fieldnames=self.field_names)
             writer.writeheader()
 
@@ -42,7 +43,8 @@ class ClassifierHistoryLogger(object):
     def __init__(self, path):
         self.path = path
         self.field_names = ["epoch", "train_loss", "valid_loss"]
-        with open(self.path, 'a') as f:
+        # Use write mode first instead of append to clear any existing files
+        with open(self.path, 'w') as f:
             writer = DictWriter(f, fieldnames=self.field_names)
             writer.writeheader()
 
