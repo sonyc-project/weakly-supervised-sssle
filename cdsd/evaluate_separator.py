@@ -7,7 +7,6 @@ import torchaudio
 import torch.nn as nn
 import pandas as pd
 import numpy as np
-import gzip
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from data import get_data_transforms, CDSDDataset, SAMPLE_RATE
@@ -275,24 +274,16 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                     for f_idx in range(masks.size()[0]):
                         file = dataset.files[batch_idx * batch_size + f_idx]
                         recon_out_path = os.path.join(recon_masks_dir, "{}_{}_recon.npy.gz".format(file, label))
-                        mask = masks[f_idx, ..., label_idx].cpu().numpy()
-                        with gzip.open(recon_out_path, 'w') as f:
-                            np.save(f, mask)
-                        assert os.path.exists(recon_out_path)
 
-                        ideal_out_path = os.path.join(recon_masks_dir, "{}_{}_ideal.npy.gz".format(file, label))
-                        mask = source_ideal_ratio_mask[f_idx, ...].cpu().numpy()
-                        with gzip.open(ideal_out_path, 'w') as f:
-                            np.save(f, mask)
-                        assert os.path.exists(ideal_out_path)
-
-                        # Save mixture spectrogram too
-                        mixture_maggram_out_path = os.path.join(recon_masks_dir, "{}_{}_mixspec.npy.gz".format(file, label))
+                        recon_mask = masks[f_idx, ..., label_idx].cpu().numpy()
+                        ideal_mask = source_ideal_ratio_mask[f_idx, ...].cpu().numpy()
                         file_mixture_maggram = mixture_maggram[f_idx, ...].cpu().numpy()
-                        with gzip.open(mixture_maggram_out_path, 'w') as f:
-                            np.save(f, file_mixture_maggram)
-                        assert os.path.exists(mixture_maggram_out_path)
 
+                        np.savez_compressed(recon_out_path,
+                                            recon_mask=recon_mask,
+                                            ideal_mask=ideal_mask,
+                                            mixture_spectrogram=file_mixture_maggram)
+                        assert os.path.exists(recon_out_path)
 
                 del x, labels, mixture_waveforms, mixture_maggram, \
                     mixture_phasegram, cos_phasegram, sin_phasegram, \
