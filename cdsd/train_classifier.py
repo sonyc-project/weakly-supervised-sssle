@@ -131,7 +131,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
             accum_train_loss += train_loss.item()
 
             # Cleanup
-            del x, labels, batch, x_masked, output, train_loss
+            del x, labels, batch, output, train_loss
             torch.cuda.empty_cache()
 
         # Evaluate on validation set
