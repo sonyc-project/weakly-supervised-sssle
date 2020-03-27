@@ -7,6 +7,7 @@ import torchaudio
 import torch.nn as nn
 import pandas as pd
 import numpy as np
+import gzip
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from data import get_data_transforms, CDSDDataset, SAMPLE_RATE
@@ -153,7 +154,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
 
             subset_results_path = os.path.join(output_dir, "separation_results_{}.csv".format(subset))
 
-            for batch in tqdm(dataloader, total=num_batches):
+            for batch_idx, batch in tqdm(enumerate(dataloader), total=num_batches):
                 x = batch["audio_data"].to(device)
                 labels = batch["labels"].to(device)
                 mixture_waveforms = batch["mixture_waveform"].to(device)
@@ -192,12 +193,28 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                 # Compute dBFS for the mixture
                 subset_results["mixture_dbfs"] += compute_dbfs(mixture_waveforms, SAMPLE_RATE, device=device).squeeze().tolist()
 
-                for idx, label in enumerate(train_dataset.labels):
+                for label_idx, label in enumerate(train_dataset.labels):
                     source_waveforms = batch[label + "_waveform"].to(device)
                     source_maggram = batch[label + "_transformed"].to(device)
 
+                    # Compute cosine and sine of phase spectrogram for reconstruction
+                    source_maggram, source_phasegram = magphase(spectrogram(
+                        source_waveforms,
+                        pad=spec_params["pad"],
+                        window=spec_params["window_fn"](
+                            window_length=spec_params["win_length"],
+                            **spec_params["wkwargs"]).to(device),
+                        n_fft=spec_params["n_fft"],
+                        hop_length=spec_params["hop_length"],
+                        win_length=spec_params["win_length"],
+                        power=None,
+                        normalized=spec_params["normalized"]), power=1.0)
+
+                    # Compute IRM for debugging
+                    source_ideal_ratio_mask = source_maggram / mixture_maggram
+
                     # Reconstruct source audio
-                    recon_source_maggram = x * masks[..., idx]
+                    recon_source_maggram = x * masks[..., label_idx]
                     recon_source_stft = torch.zeros(x.size() + (2,)).to(device)
                     recon_source_stft[..., 0] = recon_source_maggram * cos_phasegram
                     recon_source_stft[..., 1] = recon_source_maggram * sin_phasegram
@@ -241,42 +258,54 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                     subset_results[label + "_sisdr_improvement"] += sisdr_imp.tolist()
 
                     # Save ground truth labels and mixture classification results (since we're already iterating through labels)
-                    subset_results[label + "_presence_gt"] += labels[:, idx].tolist()
-                    subset_results["mixture_pred_" + label] += mixture_cls_pred[:, idx].tolist()
+                    subset_results[label + "_presence_gt"] += labels[:, label_idx].tolist()
+                    subset_results["mixture_pred_" + label] += mixture_cls_pred[:, label_idx].tolist()
 
                     if save_audio:
                         for f_idx in range(recon_source_waveforms.size()[0]):
-                            file = dataset.files[idx * batch_size + f_idx]
-                            recon_out_path = os.path.join(recon_audio_dir, "{}_{}_recon.wav".format(file, label))
+                            file = dataset.files[batch_idx * batch_size + f_idx]
+                            # Save as MP3 to save space
+                            recon_out_path = os.path.join(recon_audio_dir, "{}_{}_recon.mp3".format(file, label))
                             torchaudio.save(recon_out_path,
                                             recon_source_waveforms[f_idx, :].cpu(),
                                             sample_rate=SAMPLE_RATE)
+                            assert os.path.exists(recon_out_path)
 
-                    # Save masks for analysis and debugging
+                    # Save ideal and predicted masks for analysis and debugging
                     for f_idx in range(masks.size()[0]):
-                        file = dataset.files[idx * batch_size + f_idx]
-                        recon_out_path = os.path.join(recon_masks_dir, "{}_{}_recon.npy".format(file, label))
-                        mask = masks[f_idx, ..., idx].cpu().numpy()
-                        np.save(recon_out_path, mask)
+                        file = dataset.files[batch_idx * batch_size + f_idx]
+                        recon_out_path = os.path.join(recon_masks_dir, "{}_{}_recon.npy.gz".format(file, label))
+                        mask = masks[f_idx, ..., label_idx].cpu().numpy()
+                        with gzip.open(recon_out_path, 'w') as f:
+                            np.save(f, mask)
+                        assert os.path.exists(recon_out_path)
+
+                        ideal_out_path = os.path.join(recon_masks_dir, "{}_{}_ideal.npy.gz".format(file, label))
+                        mask = source_ideal_ratio_mask[f_idx, ...].cpu().numpy()
+                        with gzip.open(ideal_out_path, 'w') as f:
+                            np.save(f, mask)
+                        assert os.path.exists(ideal_out_path)
+
+                        # Save mixture spectrogram too
+                        mixture_maggram_out_path = os.path.join(recon_masks_dir, "{}_{}_mixspec.npy.gz".format(file, label))
+                        file_mixture_maggram = mixture_maggram[f_idx, ...].cpu().numpy()
+                        with gzip.open(mixture_maggram_out_path, 'w') as f:
+                            np.save(f, file_mixture_maggram)
+                        assert os.path.exists(mixture_maggram_out_path)
 
 
-                x = batch["audio_data"].to(device)
-                labels = batch["labels"].to(device)
-                mixture_waveforms = batch["mixture_waveform"].to(device)
-                mixture_maggram, mixture_phasegram = magphase(spectrogram(
-                cos_phasegram = torch.cos(mixture_phasegram)
-                sin_phasegram = torch.sin(mixture_phasegram)
                 del x, labels, mixture_waveforms, mixture_maggram, \
                     mixture_phasegram, cos_phasegram, sin_phasegram, \
                     source_waveforms, source_maggram, recon_source_maggram, \
                     recon_source_stft, recon_source_waveforms, input_sisdr, \
-                    sisdr_imp, source_cls_pred, batch
+                    sisdr_imp, source_cls_pred, source_ideal_ratio_mask, batch
                 torch.cuda.empty_cache()
 
         # Save results as CSV
         subset_df = pd.DataFrame(subset_results)
         subset_df.to_csv(subset_results_path)
 
+        assert os.path.exists(subset_results_path)
         print("Saved results to {}".format(subset_results_path))
 
 

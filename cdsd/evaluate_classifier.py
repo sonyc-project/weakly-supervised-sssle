@@ -86,9 +86,9 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1):
                 # Run classifier on mixture for later analysis
                 pred = classifier(x)
 
-                for idx, label in enumerate(train_dataset.labels):
-                    subset_results[label + "_presence_gt"] += labels[:, idx].tolist()
-                    subset_results[label + "_presence_pred"] += pred[:, idx].tolist()
+                for label_idx, label in enumerate(train_dataset.labels):
+                    subset_results[label + "_presence_gt"] += labels[:, label_idx].tolist()
+                    subset_results[label + "_presence_pred"] += pred[:, label_idx].tolist()
 
                 del x, labels, pred, batch
 
