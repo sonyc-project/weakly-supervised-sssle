@@ -155,7 +155,8 @@ class CDSDDataset(Dataset):
 
         sample = {
             'audio_data': audio_data,
-            'labels': label_arr
+            'labels': label_arr,
+            'index': torch.tensor(idx, dtype=torch.int16)
         }
 
         if self.load_separation_data:

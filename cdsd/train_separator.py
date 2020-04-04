@@ -4,6 +4,7 @@ import json
 import sys
 import torch
 import torch.nn as nn
+import numpy as np
 from copy import deepcopy
 from itertools import chain
 from torch.utils.data import DataLoader
@@ -38,10 +39,19 @@ def parse_arguments(args):
                         type=int, default=10,
                         help='Number of epochs in between checkpoints')
 
+    parser.add_argument('-d', '--num-debug-examples',
+                        type=int, default=5,
+                        help='Number of debug examples to save')
+
+    parser.add_argument('-s', '--save-debug-interval',
+                        type=int, default=5,
+                        help='Number of epochs in between saving debug examples')
+
     return parser.parse_args(args)
 
 
-def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoint_interval=10):
+def train(root_data_dir, train_config, output_dir, num_data_workers=1,
+          checkpoint_interval=10, num_debug_examples=5, save_debug_interval=5):
     # Set up device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -130,6 +140,11 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         accum_valid_cls_loss = 0.0
         accum_valid_total_loss = 0.0
 
+        train_masks_save = None
+        train_idxs_save = None
+        valid_masks_save = None
+        valid_idxs_save = None
+
         print(" **** Training ****")
         # Set models to train mode
         separator.train()
@@ -182,6 +197,11 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
             accum_train_cls_loss += train_cls_loss.item()
             accum_train_total_loss += train_total_loss.item()
 
+            # Save debug outputs (for first N training examples)
+            if epoch % save_debug_interval == 0 and batch_idx == 0:
+                train_masks_save = masks[:num_debug_examples].numpy()
+                train_idxs_save = batch['index'][:num_debug_examples].numpy()
+
             # Cleanup
             del x, labels, masks, batch, mask, x_masked, output, \
                 train_cls_loss, train_mix_loss, train_total_loss
@@ -190,7 +210,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         # Evaluate on validation set
         print(" **** Validation ****")
         with torch.no_grad():
-            for batch in tqdm(valid_dataloader, total=num_valid_batches):
+            for batch_idx, batch in enumerate(tqdm(valid_dataloader, total=num_valid_batches)):
                 x = batch["audio_data"].to(device)
                 labels = batch["labels"].to(device)
 
@@ -228,11 +248,17 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
                 accum_valid_cls_loss += valid_cls_loss.item()
                 accum_valid_total_loss += valid_total_loss.item()
 
+                # Save debug outputs (for first N training examples)
+                if epoch % save_debug_interval == 0 and batch_idx == 0:
+                    valid_masks_save = masks[:num_debug_examples].numpy()
+                    valid_idxs_save = batch['index'][:num_debug_examples].numpy()
+
                 # Help garbage collection
                 del x, labels, masks, batch, mask, x_masked, output, \
                     valid_cls_loss, valid_mix_loss, valid_total_loss
                 torch.cuda.empty_cache()
 
+        # Log losses
         train_mix_loss = accum_train_mix_loss / num_train_batches
         train_cls_loss = accum_train_cls_loss / num_train_batches
         train_tot_loss = accum_train_total_loss / num_train_batches
@@ -241,6 +267,15 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         valid_tot_loss = accum_valid_total_loss / num_valid_batches
         history_logger.log(epoch, train_mix_loss, train_cls_loss, train_tot_loss,
                            valid_mix_loss, valid_cls_loss, valid_tot_loss)
+
+        # Save debug outputs
+        if epoch % save_debug_interval == 0:
+            mask_debug_path = os.path.join(output_dir, "mask_debug_{}.npz".format(epoch))
+            np.savez_compressed(mask_debug_path,
+                                train_masks=train_masks_save,
+                                train_idxs=train_idxs_save,
+                                valid_masks=valid_masks_save,
+                                valid_idxs=valid_idxs_save)
 
         if multi_gpu:
             separator_state_dict = separator.module.state_dict()
@@ -283,4 +318,6 @@ if __name__ == "__main__":
           train_config=train_config,
           output_dir=args.output_dir,
           num_data_workers=args.num_data_workers,
-          checkpoint_interval=args.checkpoint_interval)
+          checkpoint_interval=args.checkpoint_interval,
+          num_debug_examples=args.num_debug_examples,
+          save_debug_interval=args.save_debug_interval)
