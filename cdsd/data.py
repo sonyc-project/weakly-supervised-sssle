@@ -1,7 +1,6 @@
-import os
 import numpy as np
-import oyaml as yaml
-import pandas as pd
+import os
+import warnings
 import jams
 import torch
 import torchaudio
@@ -17,10 +16,14 @@ SAMPLE_RATE = 16000
 
 
 class CDSDDataset(Dataset):
-    def __init__(self, root_dir, subset='train', transform=None, load_separation_data=False):
+    def __init__(self, root_dir, subset='train', transform=None,
+                 load_separation_data=False, label_mode='clip'):
         subset_names = ('train', 'valid', 'test')
         if subset not in subset_names:
             raise ValueError('Invalid subset: {}'.format(subset))
+
+        if label_mode not in ('clip', 'frame'):
+            raise ValueError('Invalid label mode: {}'.format(label_mode))
 
         self.transform = transform
         self.root_dir = root_dir
@@ -28,11 +31,16 @@ class CDSDDataset(Dataset):
         self.files = []
         self.subset = subset
         self.load_separation_data = load_separation_data
+        self.label_mode = label_mode
 
         labels = set()
         # Note, subset is being overwritten here
         for subset in subset_names:
             data_dir = os.path.join(root_dir, subset)
+            if not os.path.isdir(data_dir):
+                warnings.warn('Could not find subset {} in {}. Skipping.'.format(subset, root_dir))
+                continue
+
             for fname in os.listdir(data_dir):
                 # Only look at audio files
                 if not fname.endswith('.wav'):
@@ -80,26 +88,79 @@ class CDSDDataset(Dataset):
         if sr != SAMPLE_RATE:
             raise ValueError('Expected sample rate of {} Hz, but got {} Hz ({})'.format(SAMPLE_RATE, sr, audio_path))
 
-        jams_obj = jams.load(jams_path)
-
-        labels = torch.zeros(self.num_labels)
-        for ann in jams_obj.annotations[0].data:
-            if ann.value['role'] == "foreground":
-                label = ann.value['label']
-                idx = self.label_to_idx[label]
-                labels[idx] = 1.0
-
         waveform_len = waveform.size()[-1]
         audio_data = waveform
         if self.transform is not None:
             audio_data = self.transform(audio_data)
+        jams_obj = jams.load(jams_path)
+
+        if self.label_mode == 'clip':
+            label_arr = torch.zeros(self.num_labels)
+            num_events = torch.zeros(1, dtype=torch.int16)
+            for ann in jams_obj.annotations[0].data:
+                if ann.value['role'] == "foreground":
+                    label = ann.value['label']
+                    label_idx = self.label_to_idx[label]
+                    label_arr[label_idx] = 1.0
+                    num_events += 1
+        elif self.label_mode == 'frame':
+            hop_length = 1
+            win_length = 1
+            is_stft = False
+
+            if self.transform is not None:
+                for t in self.transform.transforms:
+                    # There should only be at most one transform that
+                    # effects the time dimension (since we don't allow
+                    # the resample transformation)
+                    if isinstance(t, Spectrogram) or isinstance(MelSpectrogram):
+                        hop_length = t.hop_length
+                        win_length = t.win_length
+                        is_stft = True
+
+            # Account for centering
+            if is_stft:
+                pad_ts = (win_length // 2) / SAMPLE_RATE
+            else:
+                pad_ts = 0.0
+
+            hop_ts = hop_length / SAMPLE_RATE
+            num_frames = audio_data.size()[-1]
+
+            label_arr = torch.zeros(num_frames, self.num_labels)
+            num_events = torch.zeros(1, dtype=torch.int16)
+            for ann in jams_obj.annotations[0].data:
+                if ann.value['role'] == "foreground":
+                    start_ts = ann.value['event_time']
+                    end_ts = start_ts + ann.value['event_duration']
+
+                    if is_stft:
+                        # Compute frame indices, such that each frame contains
+                        # the source
+                        start_idx = int((start_ts - pad_ts + hop_ts) * SAMPLE_RATE / hop_length)
+                        start_idx = max(0, start_idx)
+                        end_idx = int(np.ceil((end_ts + pad_ts) * SAMPLE_RATE / hop_length))
+                        end_idx = min(num_frames, end_idx)
+                    else:
+                        start_idx = int(start_ts * SAMPLE_RATE)
+                        end_idx = int(np.ceil(end_ts * SAMPLE_RATE))
+
+                    label = ann.value['label']
+                    label_idx = self.label_to_idx[label]
+                    label_arr[start_idx:end_idx, label_idx] = 1.0
+                    num_events += 1
+
+        else:
+            raise ValueError('Invalid label mode: {}'.format(self.label_mode))
 
         sample = {
             'audio_data': audio_data,
-            'labels': labels
+            'labels': label_arr
         }
 
         if self.load_separation_data:
+            sample['num_events'] = num_events
+
             # Include mixture and separated source waveforms
             sample['mixture_waveform'] = waveform
 
