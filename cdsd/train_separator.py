@@ -199,8 +199,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
             # Save debug outputs (for first N training examples)
             if epoch % save_debug_interval == 0 and batch_idx == 0:
-                train_masks_save = masks[:num_debug_examples].numpy()
-                train_idxs_save = batch['index'][:num_debug_examples].numpy()
+                train_masks_save = masks[:num_debug_examples].cpu().detach().numpy()
+                train_idxs_save = batch['index'][:num_debug_examples].cpu().numpy()
 
             # Cleanup
             del x, labels, masks, batch, mask, x_masked, output, \
@@ -250,8 +250,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
                 # Save debug outputs (for first N training examples)
                 if epoch % save_debug_interval == 0 and batch_idx == 0:
-                    valid_masks_save = masks[:num_debug_examples].numpy()
-                    valid_idxs_save = batch['index'][:num_debug_examples].numpy()
+                    valid_masks_save = masks[:num_debug_examples].cpu().detach().numpy()
+                    valid_idxs_save = batch['index'][:num_debug_examples].cpu().numpy()
 
                 # Help garbage collection
                 del x, labels, masks, batch, mask, x_masked, output, \
