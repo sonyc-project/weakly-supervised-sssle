@@ -3,15 +3,20 @@
 #BATCH --job-name=train_pishdadian2020_crnn_classifier_rnn_separator_frozencls
 #SBATCH --nodes=1
 #SBATCH --tasks-per-node=1
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:p40:1
 #SBATCH --cpus-per-task=4
-#SBATCH --time=48:00:00
+#SBATCH --time=72:00:00
 #SBATCH --mem=20GB
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=jtc440@nyu.edu
 #SBATCH --output=train_pishdadian2020_crnn_classifier_rnn_separator_frozencls.out
 
 set -e
+
+# If there's already a job running, exit
+if [ "$(squeue -u jtc440 | tail -n +2 | grep 'train_pi' | grep ' R ' | wc -l)" -gt 1 ]; then 
+    exit 0;  
+fi
 
 module purge
 source ~/.bashrc
