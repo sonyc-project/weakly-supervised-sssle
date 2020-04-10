@@ -3,72 +3,78 @@ import torch.nn.functional as F
 from functools import partial
 
 
-def get_energy_terms(x, labels, masks, energy_masking=None):
+def get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking=None):
     batch_size, n_channel, n_freq, n_time = x.size()
+    assert n_channel == 1
     num_labels = labels.size()[-1]
 
-    if energy_masking is None:
-        mix_energy = x.view(batch_size, -1)
-    else:
-        frame_energy = x.sum(dim=2, keepdim=True)
-        threshold = frame_energy.max(dim=3, keepdim=True)[0] * 0.01
-        energy_mask = (frame_energy >= threshold).float()
-        mix_energy = (x * energy_mask).view(batch_size, -1)
-
-    present_energy = torch.zeros_like(mix_energy)
-    absent_energy = torch.zeros_like(mix_energy)
+    present_spec = torch.zeros_like(x)
+    absent_spec = torch.zeros_like(x)
 
     for idx in range(num_labels):
         mask = masks[..., idx]
         x_masked = x * mask
 
-        if energy_masking is not None:
-            x_masked = x_masked * energy_mask
+        present_spec += x_masked * labels[:, None, None, idx:idx+1]
+        absent_spec += x_masked * (1 - labels[:, None, None, idx:idx+1])
 
-        present_energy += x_masked.view(batch_size, -1) * labels[:, idx:idx+1]
-        absent_energy += x_masked.view(batch_size, -1) * (1 - labels[:, idx:idx+1])
+    mix_present_spec_diff = x - present_spec
 
-    return mix_energy, present_energy, absent_energy
+    if energy_masking:
+        energy_mask = energy_mask[:, None, None, :]
+        mix_present_spec_diff *= energy_mask
+        absent_spec *= energy_mask
+
+    mix_present_spec_diff_flat = mix_present_spec_diff.view(batch_size, -1)
+    absent_spec_flat = absent_spec.view(batch_size, -1)
+    return mix_present_spec_diff_flat, absent_spec_flat
 
 
-def mixture_loss(x, labels, masks, energy_masking=None):
-    mix_energy, present_energy, absent_energy = get_energy_terms(x, labels, masks, energy_masking=energy_masking)
-    present_loss = torch.norm(mix_energy - present_energy, p=1, dim=1)
-    absent_loss = torch.norm(absent_energy, p=1, dim=1)
+def mixture_loss(x, labels, masks, energy_mask, energy_masking=None):
+    mix_present_spec_diff_flat, absent_spec_flat = get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking)
+
+    present_energy_diff = torch.norm(mix_present_spec_diff_flat, p=1, dim=1)
+    absent_energy = torch.norm(absent_spec_flat, p=1, dim=1)
+
+    mix_loss = (present_energy_diff + absent_energy).mean()
+    return mix_loss
+
+
+def mixture_margin_loss(x, labels, masks, margin, energy_mask, energy_masking=None):
+    mix_present_spec_diff_flat, absent_spec_flat = get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking)
+
+    present_loss = F.relu(torch.norm(mix_present_spec_diff_flat, p=1, dim=1) - margin)
+    absent_loss = torch.norm(absent_spec_flat, p=1, dim=1)
     mix_loss = (present_loss + absent_loss).mean()
     return mix_loss
 
 
-def mixture_margin_loss(x, labels, masks, margin, energy_masking=None):
-    mix_energy, present_energy, absent_energy = get_energy_terms(x, labels, masks, energy_masking=energy_masking)
-    present_loss = F.relu(torch.norm(mix_energy - present_energy, p=1, dim=1) - margin)
-    absent_loss = torch.norm(absent_energy, p=1, dim=1)
-    mix_loss = (present_loss + absent_loss).mean()
-    return mix_loss
+def mixture_margin_asymmetric_loss(x, labels, masks, margin, energy_mask, energy_masking=None):
+    mix_present_spec_diff_flat, absent_spec_flat = get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking)
 
+    present_underest = F.relu(F.relu(mix_present_spec_diff_flat).sum(dim=1) - margin)
+    present_overest = F.relu(-mix_present_spec_diff_flat).sum(dim=1)
+    present_term = present_underest + present_overest
+    absent_energy = torch.norm(absent_spec_flat, p=1, dim=1)
 
-def mixture_margin_asymmetric_loss(x, labels, masks, margin, energy_masking=None):
-    mix_energy, present_energy, absent_energy = get_energy_terms(x, labels, masks, energy_masking=energy_masking)
-    present_underest_loss = F.relu(F.relu(mix_energy - present_energy).sum(dim=1) - margin)
-    present_overest_loss = F.relu(present_energy - mix_energy).sum(dim=1)
-    present_loss = present_underest_loss + present_overest_loss
-    absent_loss = torch.norm(absent_energy, p=1, dim=1)
-
-    mix_loss = (present_loss + absent_loss).mean()
+    mix_loss = (present_term + absent_energy).mean()
     return mix_loss
 
 
 def get_mixture_loss_function(train_config):
     mixture_loss_config = train_config["losses"]["mixture"]
+    energy_masking = mixture_loss_config.get("energy_masking", False)
+
     if mixture_loss_config["name"] == "mixture_loss":
         return partial(mixture_loss,
-                       energy_masking=mixture_loss_config.get("energy_masking", False))
+                       energy_masking=energy_masking)
     elif mixture_loss_config["name"] == "mixture_margin_loss":
         return partial(mixture_margin_loss, margin=mixture_loss_config["margin"],
-                       energy_masking=mixture_loss_config.get("energy_masking", False))
+                       energy_masking=energy_masking)
     elif mixture_loss_config["name"] == "mixture_margin_asymmetric_loss":
         return partial(mixture_margin_asymmetric_loss,
                        margin=mixture_loss_config["margin"],
-                       energy_masking=mixture_loss_config.get("energy_masking", False))
+                       energy_masking=energy_masking)
     else:
         raise ValueError("Invalid mixture loss type: {}".format(mixture_loss_config["name"]))
+

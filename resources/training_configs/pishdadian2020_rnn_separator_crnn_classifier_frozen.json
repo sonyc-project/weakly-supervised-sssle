@@ -39,7 +39,8 @@
             "conv_kernel_size": 5,
             "num_input_channels": 1,
             "bias": true,
-            "pooling": "max"
+            "pooling": "max",
+            "energy_masking": true
         },
         "input_transforms": [
             {

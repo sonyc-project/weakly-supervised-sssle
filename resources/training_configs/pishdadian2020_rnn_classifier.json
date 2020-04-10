@@ -19,7 +19,8 @@
             "n_layers": 2,
             "hidden_dim": 100,
             "bias": true,
-            "pooling": "max"
+            "pooling": "max",
+            "energy_masking": true
         },
         "input_transforms": [
             {

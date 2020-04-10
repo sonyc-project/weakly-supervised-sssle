@@ -63,23 +63,29 @@ class BLSTMSpectrogramSeparator(Separator):
 
 
 class Classifier(nn.Module):
-    def __init__(self, n_classes, pooling='max', transform=None):
+    def __init__(self, n_classes, pooling='max', energy_masking=False, transform=None):
         super(Classifier, self).__init__()
         self.n_classes = n_classes
         self.pooling = pooling
+        self.energy_masking = energy_masking
         self.transform = transform
 
     # JTC: Classifiers are expected to output some kind of frame-wise estimate
     def forward_frame(self, x):
         raise NotImplementedError()
 
-    # JTC: Framewise estiamtes are pooled in some fashion, e.g. max pooling
-    def forward(self, x):
+    # JTC: Framewise estimates are pooled in some fashion, e.g. max pooling
+    def forward(self, x, energy_mask=None):
         if self.transform is not None:
             x = self.transform(x)
         x = self.forward_frame(x)
+
         if self.pooling == 'max':
             # Take the max over the time dimension
+            if self.energy_masking and energy_mask is not None:
+                # (batch, time, class)
+                x *= energy_mask.unsqueeze(dim=-1)
+
             x, _ = x.max(dim=1)
         else:
             raise ValueError('Invalid pooling type: {}'.format(self.pooling))
@@ -89,9 +95,10 @@ class Classifier(nn.Module):
 
 class BLSTMSpectrogramClassifier(Classifier):
     def __init__(self, n_bins, n_classes, n_layers=2, hidden_dim=100, bias=False,
-                 pooling='max', transform=None):
+                 pooling='max', energy_masking=False, transform=None):
         super(BLSTMSpectrogramClassifier, self).__init__(n_classes,
                                                          pooling=pooling,
+                                                         energy_masking=energy_masking,
                                                          transform=transform)
         self.blstm = nn.LSTM(input_size=n_bins,
                              hidden_size=hidden_dim,
@@ -118,9 +125,11 @@ class BLSTMSpectrogramClassifier(Classifier):
 
 class CRNNSpectrogramClassifier(Classifier):
     def __init__(self, n_bins, n_classes, blstm_hidden_dim=100, bias=False,
-                 pooling='max', num_input_channels=1, conv_kernel_size=(5,5), transform=None):
+                 pooling='max', energy_masking=False,
+                 num_input_channels=1, conv_kernel_size=(5,5), transform=None):
         super(CRNNSpectrogramClassifier, self).__init__(n_classes,
                                                         pooling=pooling,
+                                                        energy_masking=energy_masking,
                                                         transform=transform)
 
         conv_padding = same_pad(conv_kernel_size)
@@ -253,7 +262,7 @@ def construct_classifier(train_config, dataset, weights_path=None, require_init=
         classifier = BLSTMSpectrogramClassifier(n_classes=dataset.num_labels,
                                                 transform=classifier_input_transform,
                                                 **classifier_config["parameters"])
-    if classifier_config["model"] == "CRNNSpectrogramClassifier":
+    elif classifier_config["model"] == "CRNNSpectrogramClassifier":
         classifier = CRNNSpectrogramClassifier(n_classes=dataset.num_labels,
                                                 transform=classifier_input_transform,
                                                 **classifier_config["parameters"])

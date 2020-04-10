@@ -202,20 +202,6 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                     source_waveforms = batch[label + "_waveform"].to(device)
                     source_maggram = batch[label + "_transformed"].to(device)
 
-                    # Compute cosine and sine of phase spectrogram for reconstruction
-                    source_maggram, source_phasegram = magphase(spectrogram(
-                        source_waveforms,
-                        pad=spec_params["pad"],
-                        window=spec_params["window_fn"](
-                            window_length=spec_params["win_length"],
-                            **spec_params["wkwargs"]).to(device),
-                        n_fft=spec_params["n_fft"],
-                        hop_length=spec_params["hop_length"],
-                        win_length=spec_params["win_length"],
-                        power=None,
-                        normalized=spec_params["normalized"],
-                        window_scaling=spec_params["window_scaling"]), power=1.0)
-
                     # Compute IRM for debugging
                     source_ideal_ratio_mask = source_maggram / mixture_maggram
 

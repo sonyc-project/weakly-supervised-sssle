@@ -91,8 +91,17 @@ class CDSDDataset(Dataset):
 
         waveform_len = waveform.size()[-1]
         audio_data = waveform
+
+        is_stft = False
         if self.transform is not None:
             audio_data = self.transform(audio_data)
+            for t in self.transform.transforms:
+                # There should only be at most one transform that
+                # effects the time dimension (since we don't allow
+                # the resample transformation)
+                if isinstance(t, Spectrogram) or isinstance(MelSpectrogram):
+                    is_stft = True
+
         jams_obj = jams.load(jams_path)
 
         if self.label_mode == 'clip':
@@ -107,7 +116,6 @@ class CDSDDataset(Dataset):
         elif self.label_mode == 'frame':
             hop_length = 1
             win_length = 1
-            is_stft = False
 
             if self.transform is not None:
                 for t in self.transform.transforms:
@@ -117,7 +125,6 @@ class CDSDDataset(Dataset):
                     if isinstance(t, Spectrogram) or isinstance(MelSpectrogram):
                         hop_length = t.hop_length
                         win_length = t.win_length
-                        is_stft = True
 
             # Account for centering
             if is_stft:
@@ -159,6 +166,13 @@ class CDSDDataset(Dataset):
             'labels': label_arr,
             'index': torch.tensor(idx, dtype=torch.int16)
         }
+
+        if is_stft:
+            # Compute energy mask
+            frame_energy = audio_data.sum(dim=2, keepdim=True)
+            threshold = frame_energy.max(dim=3, keepdim=True)[0] * 0.01
+            energy_mask = (frame_energy >= threshold).float()
+            sample['energy_mask'] = energy_mask.squeeze()
 
         if self.load_separation_data:
             sample['num_events'] = num_events

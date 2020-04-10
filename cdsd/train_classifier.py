@@ -117,11 +117,12 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         for batch in tqdm(train_dataloader, total=num_train_batches):
             x = batch["audio_data"].to(device)
             labels = batch["labels"].to(device)
+            energy_mask = batch["energy_mask"].to(device)
 
             # Clear gradients
             optimizer.zero_grad()
 
-            output = classifier(x)
+            output = classifier(x, energy_mask=energy_mask)
 
             train_loss = bce_loss_obj(output, labels)
             train_loss.backward()
@@ -142,15 +143,16 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
             for batch in tqdm(valid_dataloader, total=num_valid_batches):
                 x = batch["audio_data"].to(device)
                 labels = batch["labels"].to(device)
+                energy_mask = batch["energy_mask"].to(device)
 
-                output = classifier(x)
+                output = classifier(x, energy_mask=energy_mask)
 
                 valid_loss = bce_loss_obj(output, labels)
 
                 # Accumulate loss for epoch
                 accum_valid_loss += valid_loss.item()
 
-                del x, labels, batch, output, valid_loss
+                del x, labels, energy_mask, batch, output, valid_loss
                 torch.cuda.empty_cache()
 
         train_loss = accum_train_loss / num_train_batches
