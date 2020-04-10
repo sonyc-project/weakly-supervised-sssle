@@ -201,7 +201,7 @@ class CRNNSpectrogramClassifier(Classifier):
         return x
 
 
-def construct_separator(train_config, dataset, weights_path=None, require_init=False, trainable=True):
+def construct_separator(train_config, dataset, weights_path=None, require_init=False, trainable=True, device=None):
     ## Build separator
     separator_config = train_config["separator"]
 
@@ -221,7 +221,7 @@ def construct_separator(train_config, dataset, weights_path=None, require_init=F
                    or separator_config.get("best_path") \
                    or separator_config.get("pretrained_path")
     if weights_path:
-        weights = torch.load(weights_path)
+        weights = torch.load(weights_path, map_location=device)
         try:
             separator.load_state_dict(weights)
         except RuntimeError:
@@ -241,7 +241,7 @@ def construct_separator(train_config, dataset, weights_path=None, require_init=F
     return separator
 
 
-def construct_classifier(train_config, dataset, weights_path=None, require_init=False, trainable=True):
+def construct_classifier(train_config, dataset, weights_path=None, require_init=False, trainable=True, device=None):
     ## Build classifier
     classifier_config = train_config["classifier"]
 
@@ -265,7 +265,7 @@ def construct_classifier(train_config, dataset, weights_path=None, require_init=
                    or classifier_config.get("best_path") \
                    or classifier_config.get("pretrained_path")
     if weights_path:
-        weights = torch.load(weights_path)
+        weights = torch.load(weights_path, map_location=device)
         try:
             classifier.load_state_dict(weights)
         except RuntimeError:

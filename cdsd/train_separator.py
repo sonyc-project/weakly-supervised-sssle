@@ -83,8 +83,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
     num_valid_batches = len(valid_dataloader)
 
     # Set up models
-    separator = construct_separator(train_config, dataset=train_dataset)
-    classifier = construct_classifier(train_config, dataset=train_dataset)
+    separator = construct_separator(train_config, dataset=train_dataset, device=device)
+    classifier = construct_classifier(train_config, dataset=train_dataset, device=device)
     multi_gpu = False
     if torch.cuda.device_count() > 1:
         num_devices = torch.cuda.device_count()
