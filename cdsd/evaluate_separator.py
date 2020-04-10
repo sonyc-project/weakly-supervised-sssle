@@ -11,7 +11,8 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from data import get_data_transforms, CDSDDataset, SAMPLE_RATE
 from models import construct_separator, construct_classifier
-from torchaudio.functional import istft, magphase, spectrogram
+from torchaudio.functional import magphase
+from spectrum import istft, spectrogram
 from utils import get_torch_window_fn
 from loudness import compute_dbfs
 
@@ -91,6 +92,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
         "power": params.get("power", 2.0),
         "normalized": params.get("normalized", False),
         "window_fn": get_torch_window_fn(params.get("window_fn", "hann_window")),
+        "window_scaling": params.get("window_scaling", False),
         "wkwargs": params.get("wkwargs", {})
     }
     spec_params["win_length"] = params.get("win_length") or spec_params["n_fft"]
@@ -171,9 +173,11 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                     hop_length=spec_params["hop_length"],
                     win_length=spec_params["win_length"],
                     power=None,
-                    normalized=spec_params["normalized"]), power=1.0)
+                    normalized=spec_params["normalized"],
+                    window_scaling=spec_params["window_scaling"]), power=1.0)
 
                 # Sanity check
+                # JTC: Removed for now due to GPU/CPU discrepancies...
                 #assert torch.allclose(x, mixture_maggram, atol=1e-5)
 
                 cos_phasegram = torch.cos(mixture_phasegram)
@@ -209,7 +213,8 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                         hop_length=spec_params["hop_length"],
                         win_length=spec_params["win_length"],
                         power=None,
-                        normalized=spec_params["normalized"]), power=1.0)
+                        normalized=spec_params["normalized"],
+                        window_scaling=spec_params["window_scaling"]), power=1.0)
 
                     # Compute IRM for debugging
                     source_ideal_ratio_mask = source_maggram / mixture_maggram
@@ -227,6 +232,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                         hop_length=spec_params["hop_length"],
                         win_length=spec_params["win_length"],
                         normalized=spec_params["normalized"],
+                        window_scaling=spec_params["window_scaling"],
                         onesided=True,
                         center=True,
                         pad_mode="reflect")

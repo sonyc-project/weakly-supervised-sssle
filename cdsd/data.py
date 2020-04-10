@@ -6,7 +6,8 @@ import torch
 import torchaudio
 import torchvision
 from torch.utils.data import Dataset
-from torchaudio.transforms import AmplitudeToDB, MelSpectrogram, MelScale, Spectrogram
+from torchaudio.transforms import AmplitudeToDB, MelScale
+from spectrum import Spectrogram, MelSpectrogram
 from utils import get_torch_window_fn
 
 # Note: if we need to use pescador, see https://github.com/pescadores/pescador/issues/133

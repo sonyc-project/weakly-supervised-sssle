@@ -6,7 +6,8 @@
                 "n_fft": 512,
                 "hop_length": 128,
                 "window_fn": "sqrt_hann_window",
-                "power": 1.0
+                "power": 1.0,
+                "window_scaling": true
             }
         }
     ],
