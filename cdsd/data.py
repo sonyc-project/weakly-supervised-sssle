@@ -169,8 +169,8 @@ class CDSDDataset(Dataset):
 
         if is_stft:
             # Compute energy mask
-            frame_energy = audio_data.sum(dim=2, keepdim=True)
-            threshold = frame_energy.max(dim=3, keepdim=True)[0] * 0.01
+            frame_energy = audio_data.sum(dim=1, keepdim=True)
+            threshold = frame_energy.max(dim=2, keepdim=True)[0] * 0.01
             energy_mask = (frame_energy >= threshold).float()
             sample['energy_mask'] = energy_mask.squeeze()
 
