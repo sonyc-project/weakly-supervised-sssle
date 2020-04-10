@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.nn.parallel
 import torch.utils.data
 from data import get_data_transforms
@@ -84,7 +85,24 @@ class Classifier(nn.Module):
             # Take the max over the time dimension
             if self.energy_masking and energy_mask is not None:
                 # (batch, time, class)
-                x *= energy_mask.unsqueeze(dim=-1)
+                out_time_dim = x.size()[1]
+                mask_time_dim = energy_mask.size()[1]
+
+                if out_time_dim != mask_time_dim:
+                    assert out_time_dim < mask_time_dim
+                    # Apply max pooling to match time scales
+                    downsample_factor = mask_time_dim // out_time_dim
+                    energy_mask = F.max_pool1d(
+                        energy_mask.unsqueeze(dim=1),
+                        kernel_size=downsample_factor,
+                        stride=downsample_factor)
+                    # Swap (dummy) channel dim and time dim
+                    energy_mask = energy_mask.transpose(1, 2)
+                else:
+                    energy_mask = energy_mask.unsqueeze(dim=-1)
+
+                # Apply energy mask
+                x *= energy_mask
 
             x, _ = x.max(dim=1)
         else:
