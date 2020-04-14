@@ -125,6 +125,20 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
     classifier.eval()
 
     batch_size = train_config["training"]["batch_size"]
+    label_mode = train_config["training"]["label_mode"]
+
+    # Set up label downsampling
+    input_num_frames = train_dataset.get_num_frames()
+    output_num_frames = classifier.get_num_frames(input_num_frames)
+    assert input_num_frames >= output_num_frames
+    if label_mode == "frame" and input_num_frames > output_num_frames:
+        # Set up max pool
+        pool_size = input_num_frames // output_num_frames
+        label_maxpool = nn.MaxPool1d(pool_size)
+        label_maxpool.to(device)
+        label_maxpool.eval()
+    else:
+        label_maxpool = None
 
     with torch.no_grad():
         for subset in ('train', 'valid', 'test'):
@@ -160,6 +174,14 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
             for batch_idx, batch in tqdm(enumerate(dataloader), total=num_batches):
                 x = batch["audio_data"].to(device)
                 labels = batch["labels"].to(device)
+                clip_labels = batch["clip_labels"].to(device)
+                if label_mode == "frame":
+                    cls_target_labels = batch["frame_labels"].to(device)
+                    # Downsample labels if necessary
+                    if label_maxpool is not None:
+                        cls_target_labels = label_maxpool(cls_target_labels.transpose(1, 2)).transpose(1, 2)
+                else:
+                    cls_target_labels = clip_labels
                 mixture_waveforms = batch["mixture_waveform"].to(device)
 
                 # Compute cosine and sine of phase spectrogram for reconstruction
@@ -239,20 +261,20 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                     # Run classifier on isolated source for later analysis
                     source_cls_pred = classifier(source_maggram)
                     for pred_idx, pred_label in enumerate(train_dataset.labels):
-                        subset_results["isolated_" + label + "_pred_" + pred_label] += source_cls_pred[:, pred_idx].tolist()
+                        subset_results["isolated_" + label + "_pred_" + pred_label] += source_cls_pred[..., pred_idx].tolist()
 
                     # Run classifier on reconstructed source for later analysis
                     source_cls_pred = classifier(recon_source_maggram)
                     for pred_idx, pred_label in enumerate(train_dataset.labels):
-                        subset_results["reconstructed_" + label + "_pred_" + pred_label] += source_cls_pred[:, pred_idx].tolist()
+                        subset_results["reconstructed_" + label + "_pred_" + pred_label] += source_cls_pred[..., pred_idx].tolist()
 
                     # Save source separation metrics
                     subset_results[label + "_input_sisdr"] += input_sisdr.tolist()
                     subset_results[label + "_sisdr_improvement"] += sisdr_imp.tolist()
 
                     # Save ground truth labels and mixture classification results (since we're already iterating through labels)
-                    subset_results[label + "_presence_gt"] += labels[:, label_idx].tolist()
-                    subset_results["mixture_pred_" + label] += mixture_cls_pred[:, label_idx].tolist()
+                    subset_results[label + "_presence_gt"] += clip_labels[:, label_idx].tolist()
+                    subset_results["mixture_pred_" + label] += mixture_cls_pred[..., label_idx].tolist()
 
                     if save_audio:
                         for f_idx in range(recon_source_waveforms.size()[0]):
@@ -279,7 +301,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                                             mixture_spectrogram=file_mixture_maggram)
                         assert os.path.exists(recon_out_path)
 
-                del x, labels, mixture_waveforms, mixture_maggram, \
+                del x, clip_labels, cls_target_labels, mixture_waveforms, mixture_maggram, \
                     mixture_phasegram, cos_phasegram, sin_phasegram, \
                     source_waveforms, source_maggram, recon_source_maggram, \
                     recon_source_stft, recon_source_waveforms, input_sisdr, \

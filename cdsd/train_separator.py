@@ -65,6 +65,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
     # Set up data loaders
     input_transform = get_data_transforms(train_config)
     batch_size = train_config["training"]["batch_size"]
+    label_mode = train_config["training"]["label_mode"]
+    assert label_mode in ("clip", "frame")
 
     train_dataset = CDSDDataset(root_data_dir,
                                 subset='train',
@@ -95,6 +97,20 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
     separator.to(device)
     classifier.to(device)
+
+    # Set up label downsampling
+    input_num_frames = train_dataset.get_num_frames()
+    output_num_frames = classifier.get_num_frames(input_num_frames)
+    assert input_num_frames >= output_num_frames
+    if label_mode == "frame" and input_num_frames > output_num_frames:
+        # Set up max pool
+        pool_size = input_num_frames // output_num_frames
+        label_maxpool = nn.MaxPool1d(pool_size)
+        if multi_gpu:
+            label_maxpool = nn.DataParallel(label_maxpool)
+        label_maxpool.to(device)
+    else:
+        label_maxpool = None
 
     # JTC: Should we still provide params with requires_grad=False here?
     optimizer = get_optimizer(chain(separator.parameters(), classifier.parameters()),
@@ -151,9 +167,15 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
         classifier.train()
         torch.cuda.empty_cache()
         for batch_idx, batch in enumerate(tqdm(train_dataloader, total=num_train_batches)):
-
             x = batch["audio_data"].to(device)
-            labels = batch["labels"].to(device)
+            clip_labels = batch["clip_labels"].to(device)
+            if label_mode == "frame":
+                cls_target_labels = batch["frame_labels"].to(device)
+                # Downsample labels if necessary
+                if label_maxpool is not None:
+                    cls_target_labels = label_maxpool(cls_target_labels.transpose(1, 2)).transpose(1, 2)
+            else:
+                cls_target_labels = clip_labels
             energy_mask = batch["energy_mask"].to(device)
 
             if epoch == 0 and batch_idx == 0:
@@ -166,23 +188,23 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
             masks = separator(x)
 
             # Compute mixture loss for separator
-            train_mix_loss = mixture_loss_fn(x, labels, masks, energy_mask)
+            train_mix_loss = mixture_loss_fn(x, clip_labels, masks, energy_mask)
 
             # Pass mixture through classifier
-            mix_cls_output = classifier(x, energy_mask)
+            mix_cls_output = classifier(x)
 
             # Compute mixture classification_loss
-            train_cls_loss = bce_loss_obj(mix_cls_output, labels)
+            train_cls_loss = bce_loss_obj(mix_cls_output, cls_target_labels)
 
             # Pass reconstructed sources through classifier
             for idx in range(train_dataset.num_labels):
                 mask = masks[..., idx]
                 x_masked = (x * mask).to(device)
-                src_cls_output = classifier(x_masked, energy_mask)
+                src_cls_output = classifier(x_masked)
 
                 # Create target
-                target = torch.zeros_like(labels).to(device)
-                target[:, idx] = labels[:, idx].to(device)
+                target = torch.zeros_like(cls_target_labels).to(device)
+                target[..., idx] = cls_target_labels[..., idx].to(device)
 
                 # Accumulate classification loss for each source type
                 train_cls_loss += bce_loss_obj(src_cls_output, target)
@@ -205,8 +227,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 train_idxs_save = batch['index'][:num_debug_examples].cpu().numpy()
 
             # Cleanup
-            del x, labels, masks, energy_mask, batch, mask, x_masked, \
-                mix_cls_output, src_cls_output, train_cls_loss, \
+            del x, clip_labels, cls_target_labels, masks, energy_mask, batch,\
+                mask, x_masked, mix_cls_output, src_cls_output, train_cls_loss, \
                 train_mix_loss, train_total_loss
             torch.cuda.empty_cache()
 
@@ -215,7 +237,14 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
         with torch.no_grad():
             for batch_idx, batch in enumerate(tqdm(valid_dataloader, total=num_valid_batches)):
                 x = batch["audio_data"].to(device)
-                labels = batch["labels"].to(device)
+                clip_labels = batch["clip_labels"].to(device)
+                if label_mode == "frame":
+                    cls_target_labels = batch["frame_labels"].to(device)
+                    # Downsample labels if necessary
+                    if label_maxpool is not None:
+                        cls_target_labels = label_maxpool(cls_target_labels.transpose(1, 2)).transpose(1, 2)
+                else:
+                    cls_target_labels = clip_labels
                 energy_mask = batch["energy_mask"].to(device)
 
                 # Set models to eval mode
@@ -226,23 +255,23 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 masks = separator(x)
 
                 # Pass mixture through classifier
-                mix_cls_output = classifier(x, energy_mask)
+                mix_cls_output = classifier(x)
 
                 # Compute mixture loss for separator
-                valid_mix_loss = mixture_loss_fn(x, labels, masks, energy_mask)
+                valid_mix_loss = mixture_loss_fn(x, clip_labels, masks, energy_mask)
 
                 # Compute mixture classification_loss
-                valid_cls_loss = bce_loss_obj(mix_cls_output, labels)
+                valid_cls_loss = bce_loss_obj(mix_cls_output, cls_target_labels)
 
                 # Pass reconstructed sources through classifier
                 for idx in range(train_dataset.num_labels):
                     mask = masks[..., idx]
                     x_masked = (x * mask).to(device)
-                    src_cls_output = classifier(x_masked, energy_mask)
+                    src_cls_output = classifier(x_masked)
 
                     # Create target
-                    target = torch.zeros_like(labels).to(device)
-                    target[:, idx] = labels[:, idx].to(device)
+                    target = torch.zeros_like(cls_target_labels).to(device)
+                    target[..., idx] = cls_target_labels[..., idx].to(device)
 
                     # Accumulate classification loss for each source type
                     valid_cls_loss += bce_loss_obj(src_cls_output, target)
@@ -261,9 +290,9 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     valid_idxs_save = batch['index'][:num_debug_examples].cpu().numpy()
 
                 # Help garbage collection
-                del x, labels, energy_mask, masks, batch, mask, x_masked, \
-                    mix_cls_output, src_cls_output, valid_cls_loss, \
-                    valid_mix_loss, valid_total_loss
+                del x, clip_labels, cls_target_labels, energy_mask, masks,\
+                    batch, mask, x_masked, mix_cls_output, src_cls_output, \
+                    valid_cls_loss, valid_mix_loss, valid_total_loss
                 torch.cuda.empty_cache()
 
         # Log losses

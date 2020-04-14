@@ -64,11 +64,10 @@ class BLSTMSpectrogramSeparator(Separator):
 
 
 class Classifier(nn.Module):
-    def __init__(self, n_classes, pooling='max', energy_masking=False, transform=None):
+    def __init__(self, n_classes, pooling='max', transform=None):
         super(Classifier, self).__init__()
         self.n_classes = n_classes
         self.pooling = pooling
-        self.energy_masking = energy_masking
         self.transform = transform
 
     # JTC: Classifiers are expected to output some kind of frame-wise estimate
@@ -76,47 +75,31 @@ class Classifier(nn.Module):
         raise NotImplementedError()
 
     # JTC: Framewise estimates are pooled in some fashion, e.g. max pooling
-    def forward(self, x, energy_mask=None):
+    def forward(self, x):
         if self.transform is not None:
             x = self.transform(x)
         x = self.forward_frame(x)
 
         if self.pooling == 'max':
             # Take the max over the time dimension
-            if self.energy_masking and energy_mask is not None:
-                # (batch, time, class)
-                out_time_dim = x.size()[1]
-                mask_time_dim = energy_mask.size()[1]
-
-                if out_time_dim != mask_time_dim:
-                    assert out_time_dim < mask_time_dim
-                    # Apply max pooling to match time scales
-                    downsample_factor = mask_time_dim // out_time_dim
-                    energy_mask = F.max_pool1d(
-                        energy_mask.unsqueeze(dim=1),
-                        kernel_size=downsample_factor,
-                        stride=downsample_factor)
-                    # Swap (dummy) channel dim and time dim
-                    energy_mask = energy_mask.transpose(1, 2)
-                else:
-                    energy_mask = energy_mask.unsqueeze(dim=-1)
-
-                # Apply energy mask
-                x *= energy_mask
-
             x, _ = x.max(dim=1)
-        else:
+        elif self.pooling is not None:
             raise ValueError('Invalid pooling type: {}'.format(self.pooling))
         # TODO: Implement Autopool
+
+        # If self.pooling is None, do not pool
+
         return x
+
+    def get_num_frames(self, input_frames):
+        return input_frames
 
 
 class BLSTMSpectrogramClassifier(Classifier):
     def __init__(self, n_bins, n_classes, n_layers=2, hidden_dim=100, bias=False,
-                 pooling='max', energy_masking=False, transform=None):
+                 pooling='max', transform=None):
         super(BLSTMSpectrogramClassifier, self).__init__(n_classes,
                                                          pooling=pooling,
-                                                         energy_masking=energy_masking,
                                                          transform=transform)
         self.blstm = nn.LSTM(input_size=n_bins,
                              hidden_size=hidden_dim,
@@ -143,24 +126,24 @@ class BLSTMSpectrogramClassifier(Classifier):
 
 class CRNNSpectrogramClassifier(Classifier):
     def __init__(self, n_bins, n_classes, blstm_hidden_dim=100, bias=False,
-                 pooling='max', energy_masking=False,
-                 num_input_channels=1, conv_kernel_size=(5,5), transform=None):
+                 pooling='max', num_input_channels=1, conv_kernel_size=(5,5), transform=None):
         super(CRNNSpectrogramClassifier, self).__init__(n_classes,
                                                         pooling=pooling,
-                                                        energy_masking=energy_masking,
                                                         transform=transform)
 
-        conv_padding = same_pad(conv_kernel_size)
+        self.n_bins = n_bins
+        self.conv_kernel_size = conv_kernel_size
+        self.conv_padding = same_pad(conv_kernel_size)
 
         self.conv1_cout = 32
         self.conv1 = nn.Conv2d(in_channels=num_input_channels,
                                out_channels=self.conv1_cout,
                                kernel_size=conv_kernel_size,
-                               padding=conv_padding,
+                               padding=self.conv_padding,
                                bias=bias)
         self.conv1_bin_out = conv2d_output_shape(n_bins,
                                             kernel_size=conv_kernel_size,
-                                            padding=conv_padding)[0]
+                                            padding=self.conv_padding)[0]
         # Transpose of Pishdadian et al. since PyTorch convention puts
         # time in last dimension
         self.pool1_size = (2,1)
@@ -177,7 +160,7 @@ class CRNNSpectrogramClassifier(Classifier):
                                bias=bias)
         self.conv2_bin_out = conv2d_output_shape(self.pool1_bin_out,
                                             kernel_size=conv_kernel_size,
-                                            padding=conv_padding)[0]
+                                            padding=self.conv_padding)[0]
         self.pool2_size = (2,2)
         self.pool2 = nn.MaxPool2d(self.pool2_size)
         self.pool2_bin_out = conv2d_output_shape(self.conv2_bin_out,
@@ -192,7 +175,7 @@ class CRNNSpectrogramClassifier(Classifier):
                                bias=bias)
         self.conv3_bin_out = conv2d_output_shape(self.pool2_bin_out,
                                             kernel_size=conv_kernel_size,
-                                            padding=conv_padding)[0]
+                                            padding=self.conv_padding)[0]
         self.pool3_size = (2,2)
         self.pool3 = nn.MaxPool2d(self.pool3_size)
         self.pool3_bin_out = conv2d_output_shape(self.conv3_bin_out,
@@ -209,6 +192,32 @@ class CRNNSpectrogramClassifier(Classifier):
 
         # PyTorch automatically takes care of time-distributing for linear layers
         self.fc = nn.Linear(2*blstm_hidden_dim, self.n_classes, bias=bias)
+
+    def get_num_frames(self, num_input_frames):
+        conv1_frame_out = conv2d_output_shape(num_input_frames,
+                                              kernel_size=self.conv_kernel_size,
+                                              padding=self.conv_padding)[1]
+
+        pool1_frame_out = conv2d_output_shape(conv1_frame_out,
+                                              kernel_size=self.pool1_size,
+                                              stride=self.pool1_size)[1]
+
+        conv2_frame_out = conv2d_output_shape(pool1_frame_out,
+                                              kernel_size=self.conv_kernel_size,
+                                              padding=self.conv_padding)[1]
+
+        pool2_frame_out = conv2d_output_shape(conv2_frame_out,
+                                              kernel_size=self.pool2_size,
+                                              stride=self.pool2_size)[1]
+
+        conv3_frame_out = conv2d_output_shape(pool2_frame_out,
+                                              kernel_size=self.conv_kernel_size,
+                                              padding=self.conv_padding)[1]
+        pool3_frame_out = conv2d_output_shape(conv3_frame_out,
+                                              kernel_size=self.pool3_size,
+                                              stride=self.pool3_size)[1]
+
+        return pool3_frame_out
 
     def forward_frame(self, x):
         batch_size = x.size()[0]
@@ -274,6 +283,12 @@ def construct_classifier(train_config, dataset, weights_path=None, require_init=
 
     # Set up input transformations for separator
     classifier_input_transform = get_data_transforms(classifier_config)
+
+    pooling = classifier_config["parameters"].get("pooling", "max")
+    if dataset.label_mode == "clip":
+        assert pooling is not None
+    elif dataset.label_mode == "frame":
+        assert pooling is None
 
     # Construct classifier
     if classifier_config["model"] == "BLSTMSpectrogramClassifier":

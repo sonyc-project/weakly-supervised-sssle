@@ -53,9 +53,12 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
     # Set up data loaders
     input_transform = get_data_transforms(train_config)
     batch_size = train_config["training"]["batch_size"]
+    label_mode = train_config["training"]["label_mode"]
+    assert label_mode in ("clip", "frame")
 
     train_dataset = CDSDDataset(root_data_dir,
                                 subset='train',
+                                label_mode=label_mode,
                                 transform=input_transform)
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size,
                                   shuffle=True, pin_memory=True,
@@ -64,6 +67,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
 
     valid_dataset = CDSDDataset(root_data_dir,
                                 subset='valid',
+                                label_mode=label_mode,
                                 transform=input_transform)
     valid_dataloader = DataLoader(valid_dataset, batch_size=batch_size,
                                   shuffle=True, pin_memory=True,
@@ -78,6 +82,20 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         multi_gpu = True
         classifier = nn.DataParallel(classifier)
     classifier.to(device)
+
+    # Set up label downsampling
+    input_num_frames = train_dataset.get_num_frames()
+    output_num_frames = classifier.get_num_frames(input_num_frames)
+    assert input_num_frames >= output_num_frames
+    if label_mode == "frame" and input_num_frames > output_num_frames:
+        # Set up max pool
+        pool_size = input_num_frames // output_num_frames
+        label_maxpool = nn.MaxPool1d(pool_size)
+        if multi_gpu:
+            label_maxpool = nn.DataParallel(label_maxpool)
+        label_maxpool.to(device)
+    else:
+        label_maxpool = None
 
     # JTC: Should we still provide params with requires_grad=False here?
     optimizer = get_optimizer(classifier.parameters(), train_config)
@@ -116,13 +134,17 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         classifier.train()
         for batch in tqdm(train_dataloader, total=num_train_batches):
             x = batch["audio_data"].to(device)
-            labels = batch["labels"].to(device)
-            energy_mask = batch["energy_mask"].to(device)
+            if label_mode == "clip":
+                labels = batch["clip_labels"].to(device)
+            else:
+                labels = batch["frame_labels"].to(device)
+                if label_maxpool is not None:
+                    labels = label_maxpool(labels.transpose(1, 2)).transpose(1, 2)
 
             # Clear gradients
             optimizer.zero_grad()
 
-            output = classifier(x, energy_mask=energy_mask)
+            output = classifier(x)
 
             train_loss = bce_loss_obj(output, labels)
             train_loss.backward()
@@ -142,17 +164,21 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         with torch.no_grad():
             for batch in tqdm(valid_dataloader, total=num_valid_batches):
                 x = batch["audio_data"].to(device)
-                labels = batch["labels"].to(device)
-                energy_mask = batch["energy_mask"].to(device)
+                if label_mode == "clip":
+                    labels = batch["clip_labels"].to(device)
+                else:
+                    labels = batch["frame_labels"].to(device)
+                    if label_maxpool is not None:
+                        labels = label_maxpool(labels.transpose(1, 2)).transpose(1, 2)
 
-                output = classifier(x, energy_mask=energy_mask)
+                output = classifier(x)
 
                 valid_loss = bce_loss_obj(output, labels)
 
                 # Accumulate loss for epoch
                 accum_valid_loss += valid_loss.item()
 
-                del x, labels, energy_mask, batch, output, valid_loss
+                del x, labels, batch, output, valid_loss
                 torch.cuda.empty_cache()
 
         train_loss = accum_train_loss / num_train_batches

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#BATCH --job-name=train_pishdadian2020_crnn_classifier_rnn_separator_frozencls
+#BATCH --job-name=train_pishdadian2020_crnn_classifier_frame_rnn_separator_frozencls
 #SBATCH --nodes=1
 #SBATCH --tasks-per-node=1
 #SBATCH --gres=gpu:p40:1
@@ -9,7 +9,7 @@
 #SBATCH --mem=20GB
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=jtc440@nyu.edu
-#SBATCH --output=train_pishdadian2020_crnn_classifier_rnn_separator_frozencls.out
+#SBATCH --output=train_pishdadian2020_crnn_classifier_frame_rnn_separator_frozencls.out
 
 set -e
 
@@ -30,20 +30,20 @@ source activate cdsd
 
 /home/jtc440/miniconda3/envs/cdsd/bin/python -u /home/jtc440/dev/class_dependent_spl_decomposition/cdsd/train_classifier.py \
     /beegfs/jtc440/cdsd-data/pishdadian2020-lambda5_soundscapes \
-    /home/jtc440/dev/class_dependent_spl_decomposition/resources/training_configs/pishdadian2020_crnn_classifier.json \
-    /scratch/jtc440/cdsd/models/pishdadian2020_crnn_classifier \
+    /home/jtc440/dev/class_dependent_spl_decomposition/resources/training_configs/pishdadian2020_crnn_classifier_frame.json \
+    /scratch/jtc440/cdsd/models/pishdadian2020_crnn_classifier_frame \
     --num-data-workers 4 \
     --checkpoint-interval 5
 
 /home/jtc440/miniconda3/envs/cdsd/bin/python -u /home/jtc440/dev/class_dependent_spl_decomposition/cdsd/train_separator.py \
     /beegfs/jtc440/cdsd-data/pishdadian2020-lambda5_soundscapes \
-    /home/jtc440/dev/class_dependent_spl_decomposition/resources/training_configs/pishdadian2020_rnn_separator_crnn_classifier_frozen.json \
-    /scratch/jtc440/cdsd/models/pishdadian2020_rnn_separator_crnn_classifier_frozen \
+    /home/jtc440/dev/class_dependent_spl_decomposition/resources/training_configs/pishdadian2020_rnn_separator_crnn_classifier_frame_frozen.json \
+    /scratch/jtc440/cdsd/models/pishdadian2020_rnn_separator_crnn_classifier_frame_frozen \
     --num-data-workers 4 \
     --checkpoint-interval 5
 
 /home/jtc440/miniconda3/envs/cdsd/bin/python -u /home/jtc440/dev/class_dependent_spl_decomposition/cdsd/evaluate_separator.py \
     /beegfs/jtc440/cdsd-data/pishdadian2020-lambda5_soundscapes \
-    /scratch/jtc440/cdsd/models/pishdadian2020_rnn_separator_crnn_classifier_frozen/config.json \
+    /scratch/jtc440/cdsd/models/pishdadian2020_rnn_separator_crnn_classifier_frame_frozen/config.json \
     --num-data-workers 4 \
     --save-audio

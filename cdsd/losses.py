@@ -30,11 +30,20 @@ def get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking=No
     return mix_present_spec_diff_flat, absent_spec_flat
 
 
+def get_normalization_factor(x, energy_mask, energy_masking=None):
+    batch_size, n_channel, n_freq, n_time = x.size()
+    if energy_masking is None:
+        return torch.tensor(n_freq * n_time, dtype=x.dtype, device=x.device)
+    else:
+        return energy_mask.sum(dim=-1, keepdims=True)[:, None, None, :]
+
+
 def mixture_loss(x, labels, masks, energy_mask, energy_masking=None):
     mix_present_spec_diff_flat, absent_spec_flat = get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking)
+    norm_factor = get_normalization_factor(x, energy_mask, energy_masking=energy_masking)
 
-    present_energy_diff = torch.norm(mix_present_spec_diff_flat, p=1, dim=1)
-    absent_energy = torch.norm(absent_spec_flat, p=1, dim=1)
+    present_energy_diff = torch.norm(mix_present_spec_diff_flat, p=1, dim=1) / norm_factor
+    absent_energy = torch.norm(absent_spec_flat, p=1, dim=1) / norm_factor
 
     mix_loss = (present_energy_diff + absent_energy).mean()
     return mix_loss
@@ -42,20 +51,22 @@ def mixture_loss(x, labels, masks, energy_mask, energy_masking=None):
 
 def mixture_margin_loss(x, labels, masks, margin, energy_mask, energy_masking=None):
     mix_present_spec_diff_flat, absent_spec_flat = get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking)
+    norm_factor = get_normalization_factor(x, energy_mask, energy_masking=energy_masking)
 
-    present_loss = F.relu(torch.norm(mix_present_spec_diff_flat, p=1, dim=1) - margin)
-    absent_loss = torch.norm(absent_spec_flat, p=1, dim=1)
+    present_loss = F.relu(torch.norm(mix_present_spec_diff_flat, p=1, dim=1) - margin) / norm_factor
+    absent_loss = torch.norm(absent_spec_flat, p=1, dim=1) / norm_factor
     mix_loss = (present_loss + absent_loss).mean()
     return mix_loss
 
 
 def mixture_margin_asymmetric_loss(x, labels, masks, margin, energy_mask, energy_masking=None):
     mix_present_spec_diff_flat, absent_spec_flat = get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking)
+    norm_factor = get_normalization_factor(x, energy_mask, energy_masking=energy_masking)
 
-    present_underest = F.relu(F.relu(mix_present_spec_diff_flat).sum(dim=1) - margin)
-    present_overest = F.relu(-mix_present_spec_diff_flat).sum(dim=1)
+    present_underest = F.relu(F.relu(mix_present_spec_diff_flat).sum(dim=1) - margin) / norm_factor
+    present_overest = F.relu(-mix_present_spec_diff_flat).sum(dim=1) / norm_factor
     present_term = present_underest + present_overest
-    absent_energy = torch.norm(absent_spec_flat, p=1, dim=1)
+    absent_energy = torch.norm(absent_spec_flat, p=1, dim=1) / norm_factor
 
     mix_loss = (present_term + absent_energy).mean()
     return mix_loss

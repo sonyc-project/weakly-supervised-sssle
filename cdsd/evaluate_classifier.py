@@ -62,13 +62,30 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1):
     classifier.to(device)
     classifier.eval()
 
+    batch_size = train_config["training"]["batch_size"]
+    label_mode = train_config["training"]["label_mode"]
+
+    # Set up label downsampling
+    input_num_frames = train_dataset.get_num_frames()
+    output_num_frames = classifier.get_num_frames(input_num_frames)
+    assert input_num_frames >= output_num_frames
+    if label_mode == "frame" and input_num_frames > output_num_frames:
+        # Set up max pool
+        pool_size = input_num_frames // output_num_frames
+        label_maxpool = nn.MaxPool1d(pool_size)
+        label_maxpool.to(device)
+        label_maxpool.eval()
+    else:
+        label_maxpool = None
+
     with torch.no_grad():
         for subset in ('train', 'valid', 'test'):
             print('====== Evaluating subset "{}" ======'.format(subset))
             dataset = CDSDDataset(root_data_dir,
                                   subset=subset,
                                   transform=input_transform)
-            dataloader = DataLoader(dataset, batch_size=train_config["training"]["batch_size"],
+            dataloader = DataLoader(dataset,
+                                    batch_size=batch_size,
                                     shuffle=False, pin_memory=True,
                                     num_workers=num_data_workers)
             num_batches = len(dataloader)
@@ -82,13 +99,18 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1):
 
             for batch in tqdm(dataloader, total=num_batches):
                 x = batch["audio_data"].to(device)
-                labels = batch["labels"].to(device)
+                if label_mode == "clip":
+                    labels = batch["clip_labels"].to(device)
+                else:
+                    labels = batch["frame_labels"].to(device)
+                    if label_maxpool is not None:
+                        labels = label_maxpool(labels.transpose(1, 2)).transpose(1, 2)
                 # Run classifier on mixture for later analysis
                 pred = classifier(x)
 
                 for label_idx, label in enumerate(train_dataset.labels):
-                    subset_results[label + "_presence_gt"] += labels[:, label_idx].tolist()
-                    subset_results[label + "_presence_pred"] += pred[:, label_idx].tolist()
+                    subset_results[label + "_presence_gt"] += labels[..., label_idx].tolist()
+                    subset_results[label + "_presence_pred"] += pred[..., label_idx].tolist()
 
                 del x, labels, pred, batch
 

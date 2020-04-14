@@ -18,13 +18,10 @@ SAMPLE_RATE = 16000
 
 class CDSDDataset(Dataset):
     def __init__(self, root_dir, subset='train', transform=None,
-                 load_separation_data=False, label_mode='clip'):
+                 load_separation_data=False):
         subset_names = ('train', 'valid', 'test')
         if subset not in subset_names:
             raise ValueError('Invalid subset: {}'.format(subset))
-
-        if label_mode not in ('clip', 'frame'):
-            raise ValueError('Invalid label mode: {}'.format(label_mode))
 
         self.transform = transform
         self.root_dir = root_dir
@@ -32,7 +29,6 @@ class CDSDDataset(Dataset):
         self.files = []
         self.subset = subset
         self.load_separation_data = load_separation_data
-        self.label_mode = label_mode
 
         labels = set()
         # Note, subset is being overwritten here
@@ -76,6 +72,15 @@ class CDSDDataset(Dataset):
     def __len__(self):
         return len(self.files)
 
+    def get_num_frames(self):
+        file = self.files[0]
+        audio_path = os.path.join(self.data_dir, file + '.wav')
+        audio_data, sr = torchaudio.load(audio_path)
+        if self.transform is not None:
+            audio_data = self.transform(audio_data)
+
+        return audio_data.size()[-1]
+
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.item()
@@ -93,6 +98,8 @@ class CDSDDataset(Dataset):
         audio_data = waveform
 
         is_stft = False
+        hop_length = 1
+        pad_ts = 0.0
         if self.transform is not None:
             audio_data = self.transform(audio_data)
             for t in self.transform.transforms:
@@ -101,69 +108,49 @@ class CDSDDataset(Dataset):
                 # the resample transformation)
                 if isinstance(t, Spectrogram) or isinstance(MelSpectrogram):
                     is_stft = True
+                    hop_length = t.hop_length
+                    # Account for centering
+                    pad_ts = (t.win_length // 2) / SAMPLE_RATE
+                    break
+        hop_ts = hop_length / SAMPLE_RATE
+        num_frames = audio_data.size()[-1]
 
         jams_obj = jams.load(jams_path)
 
-        if self.label_mode == 'clip':
-            label_arr = torch.zeros(self.num_labels)
-            num_events = torch.zeros(1, dtype=torch.int16)
-            for ann in jams_obj.annotations[0].data:
-                if ann.value['role'] == "foreground":
-                    label = ann.value['label']
-                    label_idx = self.label_to_idx[label]
-                    label_arr[label_idx] = 1.0
-                    num_events += 1
-        elif self.label_mode == 'frame':
-            hop_length = 1
-            win_length = 1
+        # Compute clip and frame level labels
+        clip_label_arr = torch.zeros(self.num_labels)
+        frame_label_arr = torch.zeros(num_frames, self.num_labels)
+        num_events = torch.zeros(1, dtype=torch.int16)
+        for ann in jams_obj.annotations[0].data:
+            if ann.value['role'] == "foreground":
+                start_ts = ann.value['event_time']
+                end_ts = start_ts + ann.value['event_duration']
+                label = ann.value['label']
+                label_idx = self.label_to_idx[label]
 
-            if self.transform is not None:
-                for t in self.transform.transforms:
-                    # There should only be at most one transform that
-                    # effects the time dimension (since we don't allow
-                    # the resample transformation)
-                    if isinstance(t, Spectrogram) or isinstance(MelSpectrogram):
-                        hop_length = t.hop_length
-                        win_length = t.win_length
+                # Update clip level labels
+                clip_label_arr[label_idx] = 1.0
 
-            # Account for centering
-            if is_stft:
-                pad_ts = (win_length // 2) / SAMPLE_RATE
-            else:
-                pad_ts = 0.0
+                # Update frame level labels
+                if is_stft:
+                    # Compute frame indices, such that each frame contains
+                    # the source
+                    start_idx = int((start_ts - pad_ts + hop_ts) * SAMPLE_RATE / hop_length)
+                    start_idx = max(0, start_idx)
+                    end_idx = int(np.ceil((end_ts + pad_ts) * SAMPLE_RATE / hop_length))
+                    end_idx = min(num_frames, end_idx)
+                else:
+                    start_idx = int(start_ts * SAMPLE_RATE)
+                    end_idx = int(np.ceil(end_ts * SAMPLE_RATE))
+                frame_label_arr[start_idx:end_idx, label_idx] = 1.0
 
-            hop_ts = hop_length / SAMPLE_RATE
-            num_frames = audio_data.size()[-1]
-
-            label_arr = torch.zeros(num_frames, self.num_labels)
-            num_events = torch.zeros(1, dtype=torch.int16)
-            for ann in jams_obj.annotations[0].data:
-                if ann.value['role'] == "foreground":
-                    start_ts = ann.value['event_time']
-                    end_ts = start_ts + ann.value['event_duration']
-
-                    if is_stft:
-                        # Compute frame indices, such that each frame contains
-                        # the source
-                        start_idx = int((start_ts - pad_ts + hop_ts) * SAMPLE_RATE / hop_length)
-                        start_idx = max(0, start_idx)
-                        end_idx = int(np.ceil((end_ts + pad_ts) * SAMPLE_RATE / hop_length))
-                        end_idx = min(num_frames, end_idx)
-                    else:
-                        start_idx = int(start_ts * SAMPLE_RATE)
-                        end_idx = int(np.ceil(end_ts * SAMPLE_RATE))
-
-                    label = ann.value['label']
-                    label_idx = self.label_to_idx[label]
-                    label_arr[start_idx:end_idx, label_idx] = 1.0
-                    num_events += 1
-
-        else:
-            raise ValueError('Invalid label mode: {}'.format(self.label_mode))
+                # Increase event count
+                num_events += 1
 
         sample = {
             'audio_data': audio_data,
-            'labels': label_arr,
+            'clip_labels': clip_label_arr,
+            'frame_labels': frame_label_arr,
             'index': torch.tensor(idx, dtype=torch.int16)
         }
 

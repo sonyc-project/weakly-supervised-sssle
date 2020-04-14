@@ -20,8 +20,7 @@
             "conv_kernel_size": 5,
             "num_input_channels": 1,
             "bias": true,
-            "pooling": "max",
-            "energy_masking": true
+            "pooling": null
         },
         "input_transforms": [
             {
@@ -36,6 +35,7 @@
     "training": {
         "batch_size": 32,
         "num_epochs": 50,
+        "label_mode": "frame",
         "optimizer": {
             "name": "Adam",
             "parameters": {
