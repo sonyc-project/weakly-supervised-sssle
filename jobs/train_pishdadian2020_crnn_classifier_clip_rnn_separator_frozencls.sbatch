@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#BATCH --job-name=train_pishdadian2020_crnn_classifier_clip_rnn_separator_frozencls
+#SBATCH --job-name=clip_ss
 #SBATCH --nodes=1
 #SBATCH --tasks-per-node=1
 #SBATCH --gres=gpu:p40:1
@@ -14,7 +14,7 @@
 set -e
 
 # If there's already a job running, exit
-if [ "$(squeue -u jtc440 | tail -n +2 | grep 'train_pi' | grep ' R ' | wc -l)" -gt 1 ]; then 
+if [ "$(squeue -u jtc440 | tail -n +2 | grep 'clip_ss' | grep ' R ' | wc -l)" -gt 1 ]; then 
     exit 0;  
 fi
 

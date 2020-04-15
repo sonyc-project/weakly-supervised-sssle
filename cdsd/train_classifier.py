@@ -58,7 +58,6 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
 
     train_dataset = CDSDDataset(root_data_dir,
                                 subset='train',
-                                label_mode=label_mode,
                                 transform=input_transform)
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size,
                                   shuffle=True, pin_memory=True,
@@ -67,7 +66,6 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
 
     valid_dataset = CDSDDataset(root_data_dir,
                                 subset='valid',
-                                label_mode=label_mode,
                                 transform=input_transform)
     valid_dataloader = DataLoader(valid_dataset, batch_size=batch_size,
                                   shuffle=True, pin_memory=True,
@@ -75,7 +73,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
     num_valid_batches = len(valid_dataloader)
 
     # Set up models
-    classifier = construct_classifier(train_config, dataset=train_dataset, device=device)
+    classifier = construct_classifier(train_config, dataset=train_dataset,
+                                      label_mode=label_mode, device=device)
     multi_gpu = False
     if torch.cuda.device_count() > 1:
         print("Using {} GPUs for training.".format(torch.cuda.device_count()))

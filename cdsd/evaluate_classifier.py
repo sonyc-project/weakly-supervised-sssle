@@ -51,9 +51,13 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1):
                                 subset='train',
                                 transform=input_transform)
 
+    batch_size = train_config["training"]["batch_size"]
+    label_mode = train_config["training"]["label_mode"]
+
     # Set up models
     classifier = construct_classifier(train_config,
                                       dataset=train_dataset,
+                                      label_mode=label_mode,
                                       require_init=True,
                                       trainable=False)
     if torch.cuda.device_count() > 1:
@@ -61,9 +65,6 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1):
         classifier = nn.DataParallel(classifier)
     classifier.to(device)
     classifier.eval()
-
-    batch_size = train_config["training"]["batch_size"]
-    label_mode = train_config["training"]["label_mode"]
 
     # Set up label downsampling
     input_num_frames = train_dataset.get_num_frames()

@@ -104,6 +104,9 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                                 subset='train',
                                 transform=input_transform)
 
+    batch_size = train_config["training"]["batch_size"]
+    label_mode = train_config["training"]["label_mode"]
+
     # Set up models
     separator = construct_separator(train_config,
                                     dataset=train_dataset,
@@ -112,6 +115,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                                     device=device)
     classifier = construct_classifier(train_config,
                                       dataset=train_dataset,
+                                      label_mode=label_mode,
                                       require_init=True,
                                       trainable=False,
                                       device=device)
@@ -123,9 +127,6 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
     classifier.to(device)
     separator.eval()
     classifier.eval()
-
-    batch_size = train_config["training"]["batch_size"]
-    label_mode = train_config["training"]["label_mode"]
 
     # Set up label downsampling
     input_num_frames = train_dataset.get_num_frames()

@@ -277,7 +277,7 @@ def construct_separator(train_config, dataset, weights_path=None, require_init=F
     return separator
 
 
-def construct_classifier(train_config, dataset, weights_path=None, require_init=False, trainable=True, device=None):
+def construct_classifier(train_config, dataset, label_mode, weights_path=None, require_init=False, trainable=True, device=None):
     ## Build classifier
     classifier_config = train_config["classifier"]
 
@@ -285,9 +285,9 @@ def construct_classifier(train_config, dataset, weights_path=None, require_init=
     classifier_input_transform = get_data_transforms(classifier_config)
 
     pooling = classifier_config["parameters"].get("pooling", "max")
-    if dataset.label_mode == "clip":
+    if label_mode == "clip":
         assert pooling is not None
-    elif dataset.label_mode == "frame":
+    elif label_mode == "frame":
         assert pooling is None
 
     # Construct classifier
