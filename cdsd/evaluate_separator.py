@@ -174,15 +174,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
 
             for batch_idx, batch in tqdm(enumerate(dataloader), total=num_batches):
                 x = batch["audio_data"].to(device)
-                labels = batch["labels"].to(device)
                 clip_labels = batch["clip_labels"].to(device)
-                if label_mode == "frame":
-                    cls_target_labels = batch["frame_labels"].to(device)
-                    # Downsample labels if necessary
-                    if label_maxpool is not None:
-                        cls_target_labels = label_maxpool(cls_target_labels.transpose(1, 2)).transpose(1, 2)
-                else:
-                    cls_target_labels = clip_labels
                 mixture_waveforms = batch["mixture_waveform"].to(device)
 
                 # Compute cosine and sine of phase spectrogram for reconstruction
@@ -290,7 +282,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                     # Save ideal and predicted masks for analysis and debugging
                     for f_idx in range(masks.size()[0]):
                         file = dataset.files[batch_idx * batch_size + f_idx]
-                        recon_out_path = os.path.join(recon_masks_dir, "{}_{}_recon.npy.gz".format(file, label))
+                        recon_out_path = os.path.join(recon_masks_dir, "{}_{}_recon.npz".format(file, label))
 
                         recon_mask = masks[f_idx, ..., label_idx].cpu().numpy()
                         ideal_mask = source_ideal_ratio_mask[f_idx, ...].cpu().numpy()
@@ -302,19 +294,19 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                                             mixture_spectrogram=file_mixture_maggram)
                         assert os.path.exists(recon_out_path)
 
-                del x, clip_labels, cls_target_labels, mixture_waveforms, mixture_maggram, \
+                del x, clip_labels, mixture_waveforms, mixture_maggram, \
                     mixture_phasegram, cos_phasegram, sin_phasegram, \
                     source_waveforms, source_maggram, recon_source_maggram, \
                     recon_source_stft, recon_source_waveforms, input_sisdr, \
                     sisdr_imp, source_cls_pred, source_ideal_ratio_mask, batch
                 torch.cuda.empty_cache()
 
-        # Save results as CSV
-        subset_df = pd.DataFrame(subset_results)
-        subset_df.to_csv(subset_results_path)
+            # Save results as CSV
+            subset_df = pd.DataFrame(subset_results)
+            subset_df.to_csv(subset_results_path)
 
-        assert os.path.exists(subset_results_path)
-        print("Saved results to {}".format(subset_results_path))
+            assert os.path.exists(subset_results_path)
+            print("Saved results to {}".format(subset_results_path))
 
 
 if __name__ == "__main__":
