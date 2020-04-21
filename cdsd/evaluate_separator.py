@@ -175,6 +175,9 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
             for batch_idx, batch in tqdm(enumerate(dataloader), total=num_batches):
                 x = batch["audio_data"].to(device)
                 clip_labels = batch["clip_labels"].to(device)
+                frame_labels = batch["frame_labels"].to(device)
+                if label_mode == "frame" and label_maxpool is not None:
+                    frame_labels = label_maxpool(frame_labels.transpose(1, 2)).transpose(1, 2)
                 mixture_waveforms = batch["mixture_waveform"].to(device)
 
                 # Compute cosine and sine of phase spectrogram for reconstruction
@@ -267,6 +270,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
 
                     # Save ground truth labels and mixture classification results (since we're already iterating through labels)
                     subset_results[label + "_presence_gt"] += clip_labels[:, label_idx].tolist()
+                    subset_results[label + "_presence_frame_gt"] += frame_labels[..., label_idx].tolist()
                     subset_results["mixture_pred_" + label] += mixture_cls_pred[..., label_idx].tolist()
 
                     if save_audio:
