@@ -4,6 +4,7 @@ import json
 import sys
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 from copy import deepcopy
 from itertools import chain
@@ -114,6 +115,9 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
     else:
         label_maxpool = None
 
+    class_prior_weighting = train_config["training"].get("class_prior_weighting", False)
+    class_frame_priors = train_dataset.class_frame_priors.to(device)
+
     # JTC: Should we still provide params with requires_grad=False here?
     optimizer = get_optimizer(chain(separator.parameters(), classifier.parameters()),
                               train_config)
@@ -122,7 +126,6 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
     mixture_loss_fn = get_mixture_loss_function(train_config)
     mixture_loss_weight = train_config["losses"]["mixture"]["weight"]
     # JTC: Look into BCEWithLogitsLoss, but for now just use BCELoss
-    bce_loss_obj = nn.BCELoss()
     cls_loss_weight = train_config["losses"]["classification"]["weight"]
 
     # Set up history logging
@@ -196,7 +199,16 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
             mix_cls_output = classifier(x)
 
             # Compute mixture classification_loss
-            train_cls_loss = bce_loss_obj(mix_cls_output, cls_target_labels)
+            if class_prior_weighting and label_mode == 'frame':
+                cls_bce = F.binary_cross_entropy(mix_cls_output,
+                                                        cls_target_labels,
+                                                        reduction='none')
+                cls_bce *= class_frame_priors[None, None, :]
+                train_cls_loss = cls_bce.mean()
+            else:
+                cls_bce = None
+                train_cls_loss = F.binary_cross_entropy(mix_cls_output,
+                                                        cls_target_labels)
 
             # Pass reconstructed sources through classifier
             for idx in range(train_dataset.num_labels):
@@ -209,7 +221,16 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 target[..., idx] = cls_target_labels[..., idx].to(device)
 
                 # Accumulate classification loss for each source type
-                train_cls_loss += bce_loss_obj(src_cls_output, target)
+                if class_prior_weighting and label_mode == 'frame':
+                    cls_bce = F.binary_cross_entropy(src_cls_output,
+                                                     target,
+                                                     reduction='none')
+                    cls_bce *= class_frame_priors[None, None, :]
+                    train_cls_loss += cls_bce.mean()
+                else:
+                    cls_bce = None
+                    train_cls_loss += F.binary_cross_entropy(src_cls_output,
+                                                             target)
 
             # Accumulate loss
             train_total_loss = train_mix_loss * mixture_loss_weight + train_cls_loss * cls_loss_weight
@@ -229,7 +250,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 train_idxs_save = batch['index'][:num_debug_examples].cpu().numpy()
 
             # Cleanup
-            del x, clip_labels, cls_target_labels, masks, energy_mask, batch,\
+            del x, clip_labels, cls_bce, cls_target_labels, masks, energy_mask, batch,\
                 mask, x_masked, mix_cls_output, src_cls_output, train_cls_loss, \
                 train_mix_loss, train_total_loss
             torch.cuda.empty_cache()
@@ -263,7 +284,16 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 valid_mix_loss = mixture_loss_fn(x, clip_labels, masks, energy_mask)
 
                 # Compute mixture classification_loss
-                valid_cls_loss = bce_loss_obj(mix_cls_output, cls_target_labels)
+                if class_prior_weighting and label_mode == 'frame':
+                    cls_bce = F.binary_cross_entropy(mix_cls_output,
+                                                     cls_target_labels,
+                                                     reduction='none')
+                    cls_bce *= class_frame_priors[None, None, :]
+                    valid_cls_loss = cls_bce.mean()
+                else:
+                    cls_bce = None
+                    valid_cls_loss = F.binary_cross_entropy(mix_cls_output,
+                                                            cls_target_labels)
 
                 # Pass reconstructed sources through classifier
                 for idx in range(train_dataset.num_labels):
@@ -276,7 +306,16 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     target[..., idx] = cls_target_labels[..., idx].to(device)
 
                     # Accumulate classification loss for each source type
-                    valid_cls_loss += bce_loss_obj(src_cls_output, target)
+                    if class_prior_weighting and label_mode == 'frame':
+                        cls_bce = F.binary_cross_entropy(src_cls_output,
+                                                         target,
+                                                         reduction='none')
+                        cls_bce *= class_frame_priors[None, None, :]
+                        valid_cls_loss += cls_bce.mean()
+                    else:
+                        cls_bce = None
+                        valid_cls_loss += F.binary_cross_entropy(src_cls_output,
+                                                                 target)
 
                 # Accumulate loss
                 valid_total_loss = valid_mix_loss * mixture_loss_weight + valid_cls_loss * cls_loss_weight
@@ -292,7 +331,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     valid_idxs_save = batch['index'][:num_debug_examples].cpu().numpy()
 
                 # Help garbage collection
-                del x, clip_labels, cls_target_labels, energy_mask, masks,\
+                del x, clip_labels, cls_bce, cls_target_labels, energy_mask, masks,\
                     batch, mask, x_masked, mix_cls_output, src_cls_output, \
                     valid_cls_loss, valid_mix_loss, valid_total_loss
                 torch.cuda.empty_cache()

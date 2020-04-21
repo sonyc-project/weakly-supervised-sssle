@@ -36,6 +36,7 @@
         "batch_size": 32,
         "num_epochs": 50,
         "label_mode": "frame",
+        "class_prior_weighting": true,
         "optimizer": {
             "name": "Adam",
             "parameters": {

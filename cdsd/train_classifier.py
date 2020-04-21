@@ -4,6 +4,7 @@ import json
 import sys
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from copy import deepcopy
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -96,12 +97,11 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
     else:
         label_maxpool = None
 
+    class_prior_weighting = train_config["training"].get("class_prior_weighting", False)
+    class_frame_priors = train_dataset.class_frame_priors.to(device)
+
     # JTC: Should we still provide params with requires_grad=False here?
     optimizer = get_optimizer(classifier.parameters(), train_config)
-
-    # Set up loss functions
-    # JTC: Look into BCEWithLogitsLoss, but for now just use BCELoss
-    bce_loss_obj = nn.BCELoss()
 
     # Set up history logging
     history_path = os.path.join(output_dir, "history.csv")
@@ -145,7 +145,15 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
 
             output = classifier(x)
 
-            train_loss = bce_loss_obj(output, labels)
+            # Compute classification_loss
+            if class_prior_weighting and label_mode == 'frame':
+                cls_bce = F.binary_cross_entropy(output, labels, reduction='none')
+                cls_bce *= class_frame_priors[None, None, :]
+                train_loss = cls_bce.mean()
+            else:
+                cls_bce = None
+                train_loss = F.binary_cross_entropy(output, labels)
+
             train_loss.backward()
             optimizer.step()
 
@@ -153,7 +161,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
             accum_train_loss += train_loss.item()
 
             # Cleanup
-            del x, labels, batch, output, train_loss
+            del x, labels, batch, output, train_loss, cls_bce
             torch.cuda.empty_cache()
 
         # Evaluate on validation set
@@ -172,12 +180,19 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
 
                 output = classifier(x)
 
-                valid_loss = bce_loss_obj(output, labels)
+                # Compute classification_loss
+                if class_prior_weighting and label_mode == 'frame':
+                    cls_bce = F.binary_cross_entropy(output, labels, reduction='none')
+                    cls_bce *= class_frame_priors[None, None, :]
+                    valid_loss = cls_bce.mean()
+                else:
+                    cls_bce = None
+                    valid_loss = F.binary_cross_entropy(output, labels)
 
                 # Accumulate loss for epoch
                 accum_valid_loss += valid_loss.item()
 
-                del x, labels, batch, output, valid_loss
+                del x, labels, batch, output, valid_loss, cls_bce
                 torch.cuda.empty_cache()
 
         train_loss = accum_train_loss / num_train_batches

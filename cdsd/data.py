@@ -69,6 +69,16 @@ class CDSDDataset(Dataset):
         self.label_to_idx = {label: idx for idx, label in enumerate(self.labels)}
         self.num_labels = len(self.labels)
 
+        total_frames = 0
+        frame_label_counts = torch.zeros(self.num_labels)
+        for ex in self:
+            frame_labels = ex['frame_labels']
+            total_frames += frame_labels.size()[0]
+            frame_label_counts += frame_labels.sum(dim=0)
+        total_frames = torch.tensor(total_frames, dtype=torch.float32)
+
+        self.class_frame_priors = frame_label_counts / total_frames
+
     def __len__(self):
         return len(self.files)
 
