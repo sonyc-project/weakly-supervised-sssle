@@ -166,6 +166,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
             subset_results.update({label + "_sisdr_improvement": [] for label in dataset.labels})
 
             subset_results.update({label + "_presence_gt": [] for label in dataset.labels})
+            subset_results.update({label + "_presence_frame_gt": [] for label in dataset.labels})
             subset_results.update({"mixture_pred_" + label: [] for label in dataset.labels})
             subset_results.update({"isolated_" + gt_label + "_pred_" + pred_label: [] for gt_label in dataset.labels for pred_label in dataset.labels})
             subset_results.update({"reconstructed_" + gt_label + "_pred_" + pred_label: [] for gt_label in dataset.labels for pred_label in dataset.labels})
