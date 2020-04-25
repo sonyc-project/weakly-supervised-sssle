@@ -9,7 +9,7 @@
 #SBATCH --mem=20GB
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=jtc440@nyu.edu
-#SBATCH --output=train_pishdadian2020_crnn_classifier_frame_rnn_separator_frozencls.out
+#SBATCH --output=train_pishdadian2020_rnn_separator_fully_supervised.out
 
 set -e
 
