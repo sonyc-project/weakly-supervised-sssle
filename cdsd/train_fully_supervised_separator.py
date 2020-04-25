@@ -169,7 +169,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 x_masked = (x * mask).to(device)
 
                 # Compute loss
-                src_spec = batch[label + "_transformed"]
+                src_spec = batch[label + "_transformed"].to(device)
                 src_spec_diff = src_spec - x_masked
                 if energy_masking:
                     src_spec_diff *= energy_mask[:, None, None, :]
