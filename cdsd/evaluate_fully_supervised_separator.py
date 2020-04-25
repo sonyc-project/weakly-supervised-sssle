@@ -15,30 +15,7 @@ from torchaudio.functional import magphase
 from spectrum import istft, spectrogram
 from utils import get_torch_window_fn
 from loudness import compute_dbfs
-
-
-EPS = 1e-8
-
-
-def sqnorm(signal):
-    return torch.pow(torch.norm(signal, p=2, dim=-1, keepdim=True), 2)
-
-
-def rowdot(s1, s2):
-    return torch.sum(s1 * s2, dim=-1, keepdim=True)
-
-
-def compute_sisdr(estimated, original):
-    # Adapted from https://github.com/wangkenpu/Conv-TasNet-PyTorch/blob/master/utils/evaluate/si_sdr_torch.py
-    if estimated.dim() == 3:
-        estimated = torch.squeeze(estimated)
-    if original.dim() == 3:
-        original = torch.squeeze(original)
-
-    signal = rowdot(estimated, original) * original / (sqnorm(original) + EPS)
-    dist = estimated - signal
-    sdr = 10 * torch.log10(sqnorm(signal) / (sqnorm(dist) + EPS) + EPS)
-    return sdr.squeeze_(dim=-1)
+from evaluate_separator import compute_sisdr
 
 
 def parse_arguments(args):
@@ -105,7 +82,6 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                                 transform=input_transform)
 
     batch_size = train_config["training"]["batch_size"]
-    label_mode = train_config["training"]["label_mode"]
 
     # Set up models
     separator = construct_separator(train_config,
@@ -113,33 +89,14 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                                     require_init=True,
                                     trainable=False,
                                     device=device)
-    classifier = construct_classifier(train_config,
-                                      dataset=train_dataset,
-                                      label_mode=label_mode,
-                                      require_init=True,
-                                      trainable=False,
-                                      device=device)
     if torch.cuda.device_count() > 1:
         print("Using {} GPUs for evaluation.".format(torch.cuda.device_count()))
         separator = nn.DataParallel(separator)
-        classifier = nn.DataParallel(classifier)
     separator.to(device)
-    classifier.to(device)
     separator.eval()
-    classifier.eval()
 
     # Set up label downsampling
     input_num_frames = train_dataset.get_num_frames()
-    output_num_frames = classifier.get_num_frames(input_num_frames)
-    assert input_num_frames >= output_num_frames
-    if label_mode == "frame" and input_num_frames > output_num_frames:
-        # Set up max pool
-        pool_size = input_num_frames // output_num_frames
-        label_maxpool = nn.MaxPool1d(pool_size)
-        label_maxpool.to(device)
-        label_maxpool.eval()
-    else:
-        label_maxpool = None
 
     with torch.no_grad():
         for subset in ('train', 'valid', 'test'):
@@ -167,18 +124,13 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
 
             subset_results.update({label + "_presence_gt": [] for label in dataset.labels})
             subset_results.update({label + "_presence_frame_gt": [] for label in dataset.labels})
-            subset_results.update({"mixture_pred_" + label: [] for label in dataset.labels})
-            subset_results.update({"isolated_" + gt_label + "_pred_" + pred_label: [] for gt_label in dataset.labels for pred_label in dataset.labels})
-            subset_results.update({"reconstructed_" + gt_label + "_pred_" + pred_label: [] for gt_label in dataset.labels for pred_label in dataset.labels})
 
-            subset_results_path = os.path.join(output_dir, "separation_results_{}.csv".format(subset))
+            subset_results_path = os.path.join(output_dir, "fully_supervised_separation_results_{}.csv".format(subset))
 
             for batch_idx, batch in tqdm(enumerate(dataloader), total=num_batches):
                 x = batch["audio_data"].to(device)
                 clip_labels = batch["clip_labels"].to(device)
                 frame_labels = batch["frame_labels"].to(device)
-                if label_mode == "frame" and label_maxpool is not None:
-                    frame_labels = label_maxpool(frame_labels.transpose(1, 2)).transpose(1, 2)
                 mixture_waveforms = batch["mixture_waveform"].to(device)
 
                 # Compute cosine and sine of phase spectrogram for reconstruction
@@ -204,9 +156,6 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
 
                 # Run separator on mixture to obtain masks
                 masks = separator(x)
-
-                # Run classifier on mixture for later analysis
-                mixture_cls_pred = classifier(x)
 
                 if save_audio:
                     recon_audio_dir = os.path.join(output_dir, "reconstructed_audio")
@@ -251,20 +200,6 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                     # Compute SI-SDR improvement using reconstructed sources
                     sisdr_imp = compute_sisdr(recon_source_waveforms, source_waveforms) - input_sisdr
 
-                    # If label is not present, then set SDR to NaN
-                    # Removing for now, we can always do this masking later...
-                    # sisdr_imp[torch.logical_not(labels[..., idx].bool())] = float('nan')
-
-                    # Run classifier on isolated source for later analysis
-                    source_cls_pred = classifier(source_maggram)
-                    for pred_idx, pred_label in enumerate(train_dataset.labels):
-                        subset_results["isolated_" + label + "_pred_" + pred_label] += source_cls_pred[..., pred_idx].tolist()
-
-                    # Run classifier on reconstructed source for later analysis
-                    source_cls_pred = classifier(recon_source_maggram)
-                    for pred_idx, pred_label in enumerate(train_dataset.labels):
-                        subset_results["reconstructed_" + label + "_pred_" + pred_label] += source_cls_pred[..., pred_idx].tolist()
-
                     # Save source separation metrics
                     subset_results[label + "_input_sisdr"] += input_sisdr.tolist()
                     subset_results[label + "_sisdr_improvement"] += sisdr_imp.tolist()
@@ -272,7 +207,6 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                     # Save ground truth labels and mixture classification results (since we're already iterating through labels)
                     subset_results[label + "_presence_gt"] += clip_labels[:, label_idx].tolist()
                     subset_results[label + "_presence_frame_gt"] += frame_labels[..., label_idx].tolist()
-                    subset_results["mixture_pred_" + label] += mixture_cls_pred[..., label_idx].tolist()
 
                     if save_audio:
                         for f_idx in range(recon_source_waveforms.size()[0]):
@@ -303,7 +237,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                     mixture_phasegram, cos_phasegram, sin_phasegram, \
                     source_waveforms, source_maggram, recon_source_maggram, \
                     recon_source_stft, recon_source_waveforms, input_sisdr, \
-                    sisdr_imp, source_cls_pred, source_ideal_ratio_mask, batch
+                    sisdr_imp, source_ideal_ratio_mask, batch
                 torch.cuda.empty_cache()
 
             # Save results as CSV
