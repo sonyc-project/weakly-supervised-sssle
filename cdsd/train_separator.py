@@ -119,8 +119,9 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
     class_frame_priors = train_dataset.class_frame_priors.to(device)
 
     # JTC: Should we still provide params with requires_grad=False here?
-    optimizer = get_optimizer(chain(separator.parameters(), classifier.parameters()),
-                              train_config)
+    all_params = chain(separator.parameters(), classifier.parameters())
+    trainable_params = (param for param in all_params if param.requires_grad)
+    optimizer = get_optimizer(trainable_params, train_config)
 
     # Set up loss functions
     mixture_loss_fn = get_mixture_loss_function(train_config)
