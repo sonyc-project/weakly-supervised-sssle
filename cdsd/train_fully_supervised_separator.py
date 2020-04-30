@@ -175,6 +175,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     src_spec_diff *= energy_mask[:, None, None, :]
                 src_spec_diff_flat = src_spec_diff.view(curr_batch_size, -1)
                 src_loss = weight * torch.norm(src_spec_diff_flat, p=1, dim=1) / norm_factor
+                src_loss = src_loss.mean()
 
                 # Accumulate loss for each source
                 if train_loss is None:
@@ -196,7 +197,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
             # Cleanup
             del x, masks, energy_mask, batch, mask, x_masked, train_loss, \
-                norm_factor, src_spec, src_spec_diff. src_spec_diff_flat, src_loss
+                norm_factor, src_spec, src_spec_diff, src_spec_diff_flat, src_loss
             torch.cuda.empty_cache()
 
         # Evaluate on validation set
@@ -231,12 +232,13 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     x_masked = (x * mask).to(device)
 
                     # Compute loss
-                    src_spec = batch[label + "_transformed"]
+                    src_spec = batch[label + "_transformed"].to(device)
                     src_spec_diff = src_spec - x_masked
                     if energy_masking:
                         src_spec_diff *= energy_mask[:, None, None, :]
                     src_spec_diff_flat = src_spec_diff.view(curr_batch_size, -1)
                     src_loss = weight * torch.norm(src_spec_diff_flat, p=1, dim=1) / norm_factor
+                    src_loss = src_loss.mean()
 
                     # Accumulate loss for each source
                     if valid_loss is None:
@@ -254,7 +256,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
                 # Cleanup
                 del x, masks, energy_mask, batch, mask, x_masked, valid_loss, \
-                    norm_factor, src_spec, src_spec_diff. src_spec_diff_flat, src_loss
+                    norm_factor, src_spec, src_spec_diff, src_spec_diff_flat, src_loss
                 torch.cuda.empty_cache()
 
         # Log losses
