@@ -117,7 +117,7 @@ class CDSDDataset(Dataset):
                 # There should only be at most one transform that
                 # effects the time dimension (since we don't allow
                 # the resample transformation)
-                if isinstance(t, Spectrogram) or isinstance(MelSpectrogram):
+                if isinstance(t, Spectrogram) or isinstance(t, MelSpectrogram):
                     is_stft = True
                     hop_length = t.hop_length
                     # Account for centering
