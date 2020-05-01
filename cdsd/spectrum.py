@@ -30,7 +30,7 @@ def spectrogram(waveform, pad, window, n_fft, hop_length, win_length, power, nor
 
     spec = ta_spectrogram(waveform, pad, window, n_fft, hop_length, win_length, power, normalized)
     if window_scaling:
-        spec /= torch.tensor(window.sum(), dtype=spec.dtype, device=spec.device)
+        spec /= window.sum().clone().detach().type(spec.dtype).to(spec.device)
 
     return spec
 
@@ -98,7 +98,8 @@ def istft(stft_matrix, n_fft, hop_length=None, win_length=None, window=None,
             scale = win_length or n_fft
         else:
             scale = window.sum()
-        scale = torch.tensor(scale, dtype=inv_spec.dtype, device=inv_spec.device)
+        scale = scale.clone().detach().type(inv_spec.dtype).to(inv_spec.device)
+
         inv_spec /= scale
 
     return inv_spec
