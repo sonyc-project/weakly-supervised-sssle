@@ -99,8 +99,7 @@ def istft(stft_matrix, n_fft, hop_length=None, win_length=None, window=None,
         else:
             scale = window.sum()
         scale = scale.clone().detach().type(inv_spec.dtype).to(inv_spec.device)
-
-        inv_spec /= scale
+        inv_spec *= scale
 
     return inv_spec
 
