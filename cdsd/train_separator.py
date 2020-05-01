@@ -116,7 +116,6 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
         label_maxpool = None
 
     class_prior_weighting = train_config["training"].get("class_prior_weighting", False)
-    class_frame_priors = train_dataset.class_frame_priors.to(device)
 
     # JTC: Should we still provide params with requires_grad=False here?
     all_params = chain(separator.parameters(), classifier.parameters())
@@ -180,8 +179,19 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 # Downsample labels if necessary
                 if label_maxpool is not None:
                     cls_target_labels = label_maxpool(cls_target_labels.transpose(1, 2)).transpose(1, 2)
+
+                class_weights = torch.zeros_like(cls_target_labels, device=device)
+                frame_labels = None
+                for class_idx in range(train_dataset.num_labels):
+                    frame_labels = cls_target_labels[..., class_idx]
+                    p = train_dataset.class_frame_priors[class_idx]
+                    class_weights[frame_labels.bool(), class_idx] = 1.0 / p
+                    class_weights[(-frame_labels + 1).bool(), class_idx] = 1.0 / (1 - p)
+                del frame_labels
             else:
                 cls_target_labels = clip_labels
+                class_weights = None
+
             energy_mask = batch["energy_mask"].to(device)
 
             if epoch == 0 and batch_idx == 0:
@@ -204,7 +214,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 cls_bce = F.binary_cross_entropy(mix_cls_output,
                                                         cls_target_labels,
                                                         reduction='none')
-                cls_bce *= class_frame_priors[None, None, :]
+                cls_bce *= class_weights
                 train_cls_loss = cls_bce.mean()
             else:
                 cls_bce = None
@@ -226,7 +236,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     cls_bce = F.binary_cross_entropy(src_cls_output,
                                                      target,
                                                      reduction='none')
-                    cls_bce *= class_frame_priors[None, None, :]
+                    cls_bce *= class_weights
                     train_cls_loss += cls_bce.mean()
                 else:
                     cls_bce = None
@@ -253,7 +263,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
             # Cleanup
             del x, clip_labels, cls_bce, cls_target_labels, masks, energy_mask, batch,\
                 mask, x_masked, mix_cls_output, src_cls_output, train_cls_loss, \
-                train_mix_loss, train_total_loss
+                train_mix_loss, train_total_loss, class_weights
             torch.cuda.empty_cache()
 
         # Evaluate on validation set
@@ -267,8 +277,19 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     # Downsample labels if necessary
                     if label_maxpool is not None:
                         cls_target_labels = label_maxpool(cls_target_labels.transpose(1, 2)).transpose(1, 2)
+
+                    class_weights = torch.zeros_like(cls_target_labels, device=device)
+                    frame_labels = None
+                    for class_idx in range(train_dataset.num_labels):
+                        frame_labels = cls_target_labels[..., class_idx]
+                        p = train_dataset.class_frame_priors[class_idx]
+                        class_weights[frame_labels.bool(), class_idx] = 1.0 / p
+                        class_weights[(-frame_labels + 1).bool(), class_idx] = 1.0 / (1 - p)
+                    del frame_labels
                 else:
                     cls_target_labels = clip_labels
+                    class_weights = None
+
                 energy_mask = batch["energy_mask"].to(device)
 
                 # Set models to eval mode
@@ -289,7 +310,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     cls_bce = F.binary_cross_entropy(mix_cls_output,
                                                      cls_target_labels,
                                                      reduction='none')
-                    cls_bce *= class_frame_priors[None, None, :]
+                    cls_bce *= class_weights
                     valid_cls_loss = cls_bce.mean()
                 else:
                     cls_bce = None
@@ -311,7 +332,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                         cls_bce = F.binary_cross_entropy(src_cls_output,
                                                          target,
                                                          reduction='none')
-                        cls_bce *= class_frame_priors[None, None, :]
+                        cls_bce *= class_weights
                         valid_cls_loss += cls_bce.mean()
                     else:
                         cls_bce = None
@@ -334,7 +355,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 # Help garbage collection
                 del x, clip_labels, cls_bce, cls_target_labels, energy_mask, masks,\
                     batch, mask, x_masked, mix_cls_output, src_cls_output, \
-                    valid_cls_loss, valid_mix_loss, valid_total_loss
+                    valid_cls_loss, valid_mix_loss, valid_total_loss, class_weights
                 torch.cuda.empty_cache()
 
         # Log losses

@@ -2,6 +2,7 @@ import numpy as np
 import os
 import warnings
 import jams
+import librosa
 import torch
 import torchaudio
 import torchvision
@@ -72,47 +73,29 @@ class CDSDDataset(Dataset):
 
         total_frames = 0
         frame_label_counts = torch.zeros(self.num_labels)
-        for ex in self:
-            frame_labels = ex['frame_labels']
+        for idx in range(len(self.files)):
+            frame_labels = self.get_labels(idx)['frame_labels']
             total_frames += frame_labels.size()[0]
             frame_label_counts += frame_labels.sum(dim=0)
         total_frames = torch.tensor(total_frames, dtype=torch.float32)
-
         self.class_frame_priors = frame_label_counts / total_frames
 
     def __len__(self):
         return len(self.files)
 
-    def get_num_frames(self):
-        file = self.files[0]
-        audio_path = os.path.join(self.data_dir, file + '.wav')
-        audio_data, sr = torchaudio.load(audio_path)
-        if self.transform is not None:
-            audio_data = self.transform(audio_data)
-
-        return audio_data.size()[-1]
-
-    def __getitem__(self, idx):
+    def get_labels(self, idx):
         if torch.is_tensor(idx):
             idx = idx.item()
 
         file = self.files[idx]
         audio_path = os.path.join(self.data_dir, file + '.wav')
         jams_path = os.path.join(self.data_dir, file + '.jams')
-
-        waveform, sr = torchaudio.load(audio_path)
-
-        if sr != SAMPLE_RATE:
-            raise ValueError('Expected sample rate of {} Hz, but got {} Hz ({})'.format(SAMPLE_RATE, sr, audio_path))
-
-        waveform_len = waveform.size()[-1]
-        audio_data = waveform
+        waveform_len = int(librosa.get_duration(filename=audio_path) * SAMPLE_RATE)
 
         is_stft = False
         hop_length = 1
         pad_ts = 0.0
         if self.transform is not None:
-            audio_data = self.transform(audio_data)
             for t in self.transform.transforms:
                 # There should only be at most one transform that
                 # effects the time dimension (since we don't allow
@@ -124,7 +107,8 @@ class CDSDDataset(Dataset):
                     pad_ts = (t.win_length // 2) / SAMPLE_RATE
                     break
         hop_ts = hop_length / SAMPLE_RATE
-        num_frames = audio_data.size()[-1]
+        # Assumes centering
+        num_frames = waveform_len // hop_length + 1
 
         jams_obj = jams.load(jams_path)
 
@@ -158,10 +142,51 @@ class CDSDDataset(Dataset):
                 # Increase event count
                 num_events += 1
 
-        sample = {
-            'audio_data': audio_data,
+        return {
             'clip_labels': clip_label_arr,
             'frame_labels': frame_label_arr,
+            'num_events': num_events,
+            'is_stft': is_stft
+        }
+
+    def get_num_frames(self):
+        file = self.files[0]
+        audio_path = os.path.join(self.data_dir, file + '.wav')
+        waveform_len = int(librosa.get_duration(filename=audio_path) * SAMPLE_RATE)
+
+        hop_length = 1
+        if self.transform is not None:
+            for t in self.transform.transforms:
+                if isinstance(t, Spectrogram) or isinstance(t, MelSpectrogram):
+                    hop_length = t.hop_length
+                    break
+        # Assumes centering
+        num_frames = waveform_len // hop_length + 1
+
+        return num_frames
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.item()
+
+        file = self.files[idx]
+        audio_path = os.path.join(self.data_dir, file + '.wav')
+
+        waveform, sr = torchaudio.load(audio_path)
+
+        if sr != SAMPLE_RATE:
+            raise ValueError('Expected sample rate of {} Hz, but got {} Hz ({})'.format(SAMPLE_RATE, sr, audio_path))
+
+        waveform_len = waveform.size()[-1]
+        audio_data = waveform
+
+        labels_dict = self.get_labels(idx)
+        is_stft = labels_dict['is_stft']
+
+        sample = {
+            'audio_data': audio_data,
+            'clip_labels': labels_dict['clip_labels'],
+            'frame_labels': labels_dict['frame_labels'],
             'index': torch.tensor(idx, dtype=torch.int16)
         }
 
@@ -173,7 +198,7 @@ class CDSDDataset(Dataset):
             sample['energy_mask'] = energy_mask.squeeze()
 
         if self.load_separation_data:
-            sample['num_events'] = num_events
+            sample['num_events'] = labels_dict['num_events']
 
             # Include mixture and separated source waveforms
             sample['mixture_waveform'] = waveform

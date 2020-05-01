@@ -96,7 +96,6 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
     separator.to(device)
 
     class_prior_weighting = train_config["training"].get("class_prior_weighting", False)
-    class_frame_priors = train_dataset.class_frame_priors.to(device)
     energy_masking = train_config["losses"]["separation"].get("energy_masking", False)
 
     # JTC: Should we still provide params with requires_grad=False here?
@@ -138,6 +137,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
         torch.cuda.empty_cache()
         for batch_idx, batch in enumerate(tqdm(train_dataloader, total=num_train_batches)):
             x = batch["audio_data"].to(device)
+            frame_labels = batch["frame_labels"].to(device)
             energy_mask = batch["energy_mask"].to(device)
             curr_batch_size = x.size()[0]
             norm_factor = get_normalization_factor(x, energy_mask,
@@ -161,7 +161,14 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
             for label_idx, label in enumerate(train_dataset.labels):
                 if class_prior_weighting:
-                    weight = class_frame_priors[label_idx].to(device)
+                    cls_frame_labels = frame_labels[..., label_idx]
+                    p = train_dataset.class_frame_priors[label_idx]
+
+                    weight = torch.zeros_like(cls_frame_labels, dtype=x.dtype, device=device)
+                    weight[cls_frame_labels.bool()] = 1.0 / p
+                    weight[(-cls_frame_labels + 1).bool()] = 1.0 / (1 - p)
+                    weight = weight[:, None, None :]
+                    del cls_frame_labels
                 else:
                     weight = torch.ones(1, dtype=x.dtype, device=device)
 
@@ -196,7 +203,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 train_idxs_save = batch['index'][:num_debug_examples].cpu().numpy()
 
             # Cleanup
-            del x, masks, energy_mask, batch, mask, x_masked, train_loss, \
+            del x, masks, energy_mask, batch, mask, x_masked, train_loss, weight, \
                 norm_factor, src_spec, src_spec_diff, src_spec_diff_flat, src_loss
             torch.cuda.empty_cache()
 
@@ -205,6 +212,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
         with torch.no_grad():
             for batch_idx, batch in enumerate(tqdm(valid_dataloader, total=num_valid_batches)):
                 x = batch["audio_data"].to(device)
+                frame_labels = batch["frame_labels"].to(device)
                 energy_mask = batch["energy_mask"].to(device)
                 curr_batch_size = x.size()[0]
                 norm_factor = get_normalization_factor(x, energy_mask,
@@ -224,7 +232,14 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
                 for label_idx, label in enumerate(valid_dataset.labels):
                     if class_prior_weighting:
-                        weight = class_frame_priors[label_idx].to(device)
+                        cls_frame_labels = frame_labels[..., label_idx]
+                        p = train_dataset.class_frame_priors[label_idx]
+
+                        weight = torch.zeros_like(cls_frame_labels, dtype=x.dtype, device=device)
+                        weight[cls_frame_labels.bool()] = 1.0 / p
+                        weight[(-cls_frame_labels + 1).bool()] = 1.0 / (1 - p)
+                        weight = weight[:, None, None :]
+                        del cls_frame_labels
                     else:
                         weight = torch.ones(1, dtype=x.dtype, device=device)
 
@@ -255,7 +270,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     valid_idxs_save = batch['index'][:num_debug_examples].cpu().numpy()
 
                 # Cleanup
-                del x, masks, energy_mask, batch, mask, x_masked, valid_loss, \
+                del x, masks, energy_mask, batch, mask, x_masked, valid_loss, weight, \
                     norm_factor, src_spec, src_spec_diff, src_spec_diff_flat, src_loss
                 torch.cuda.empty_cache()
 
