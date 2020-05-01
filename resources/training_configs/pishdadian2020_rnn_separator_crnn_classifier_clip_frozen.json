@@ -41,12 +41,7 @@
             "bias": true,
             "pooling": "max"
         },
-        "input_transforms": [
-            {
-                "name": "AmplitudeToDB",
-                "parameters": {}
-            }
-        ],
+        "input_transforms": [],
 
         "trainable": false,
         "pretrained_path": "/scratch/jtc440/cdsd/models/pishdadian2020_crnn_classifier/classifier_best.pt"

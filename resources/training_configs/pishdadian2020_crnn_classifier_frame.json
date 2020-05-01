@@ -22,12 +22,7 @@
             "bias": true,
             "pooling": null
         },
-        "input_transforms": [
-            {
-                "name": "AmplitudeToDB",
-                "parameters": {}
-            }
-        ],
+        "input_transforms": [],
 
         "trainable": true
     },
