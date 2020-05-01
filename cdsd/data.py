@@ -58,7 +58,7 @@ class CDSDDataset(Dataset):
                 # If we are loading the separation data, only include the files
                 # that have separated sources
                 if load_separation_data:
-                    event_dir = os.path.join(self.data_dir, name + "_events")
+                    event_dir = os.path.join(data_dir, name + "_events")
                     if not os.path.isdir(event_dir):
                         continue
 

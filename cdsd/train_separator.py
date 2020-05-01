@@ -366,7 +366,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
         # PyTorch saving recommendations: https://stackoverflow.com/a/49078976
         # Checkpoint every N epochs
 
-        if epoch % checkpoint_interval:
+        if epoch % checkpoint_interval == 0:
             separator_ckpt_path = os.path.join(output_dir, "separator_epoch-{}.pt".format(epoch))
             classifier_ckpt_path = os.path.join(output_dir, "classifier_epoch-{}.pt".format(epoch))
             torch.save(separator_state_dict, separator_ckpt_path)
