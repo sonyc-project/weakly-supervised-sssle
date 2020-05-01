@@ -65,6 +65,7 @@ class CDSDDataset(Dataset):
                 if subset == self.subset:
                     self.files.append(name)
 
+        self.files = sorted(self.files)
         self.labels = sorted(labels)
         self.label_to_idx = {label: idx for idx, label in enumerate(self.labels)}
         self.num_labels = len(self.labels)
