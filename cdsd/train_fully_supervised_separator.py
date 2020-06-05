@@ -167,7 +167,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     weight = torch.zeros_like(cls_frame_labels, dtype=x.dtype, device=device)
                     weight[cls_frame_labels.bool()] = 1.0 / p
                     weight[(-cls_frame_labels + 1).bool()] = 1.0 / (1 - p)
-                    weight = weight[:, None, None :]
+                    weight = weight[:, None, None, :]
                     del cls_frame_labels
                 else:
                     weight = torch.ones(1, dtype=x.dtype, device=device)
@@ -177,11 +177,11 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
                 # Compute loss
                 src_spec = batch[label + "_transformed"].to(device)
-                src_spec_diff = src_spec - x_masked
+                src_spec_diff = (src_spec - x_masked) * weight
                 if energy_masking:
                     src_spec_diff *= energy_mask[:, None, None, :]
                 src_spec_diff_flat = src_spec_diff.view(curr_batch_size, -1)
-                src_loss = weight * torch.norm(src_spec_diff_flat, p=1, dim=1) / norm_factor
+                src_loss = torch.norm(src_spec_diff_flat, p=1, dim=1) / norm_factor
                 src_loss = src_loss.mean()
 
                 # Accumulate loss for each source
@@ -238,7 +238,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                         weight = torch.zeros_like(cls_frame_labels, dtype=x.dtype, device=device)
                         weight[cls_frame_labels.bool()] = 1.0 / p
                         weight[(-cls_frame_labels + 1).bool()] = 1.0 / (1 - p)
-                        weight = weight[:, None, None :]
+                        weight = weight[:, None, None, :]
                         del cls_frame_labels
                     else:
                         weight = torch.ones(1, dtype=x.dtype, device=device)
@@ -248,11 +248,11 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
                     # Compute loss
                     src_spec = batch[label + "_transformed"].to(device)
-                    src_spec_diff = src_spec - x_masked
+                    src_spec_diff = (src_spec - x_masked) * weight
                     if energy_masking:
                         src_spec_diff *= energy_mask[:, None, None, :]
                     src_spec_diff_flat = src_spec_diff.view(curr_batch_size, -1)
-                    src_loss = weight * torch.norm(src_spec_diff_flat, p=1, dim=1) / norm_factor
+                    src_loss = torch.norm(src_spec_diff_flat, p=1, dim=1) / norm_factor
                     src_loss = src_loss.mean()
 
                     # Accumulate loss for each source

@@ -185,8 +185,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 for class_idx in range(train_dataset.num_labels):
                     frame_labels = cls_target_labels[..., class_idx]
                     p = train_dataset.class_frame_priors[class_idx]
-                    class_weights[frame_labels.bool(), class_idx] = 1.0 / p
-                    class_weights[(-frame_labels + 1).bool(), class_idx] = 1.0 / (1 - p)
+                    class_weights[..., class_idx][frame_labels.bool()] = 1.0 / p
+                    class_weights[..., class_idx][(-frame_labels + 1).bool()] = 1.0 / (1 - p)
                 del frame_labels
             else:
                 cls_target_labels = clip_labels
@@ -283,8 +283,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     for class_idx in range(train_dataset.num_labels):
                         frame_labels = cls_target_labels[..., class_idx]
                         p = train_dataset.class_frame_priors[class_idx]
-                        class_weights[frame_labels.bool(), class_idx] = 1.0 / p
-                        class_weights[(-frame_labels + 1).bool(), class_idx] = 1.0 / (1 - p)
+                        class_weights[..., class_idx][frame_labels.bool()] = 1.0 / p
+                        class_weights[..., class_idx][(-frame_labels + 1).bool()] = 1.0 / (1 - p)
                     del frame_labels
                 else:
                     cls_target_labels = clip_labels

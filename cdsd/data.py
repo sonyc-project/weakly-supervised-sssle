@@ -179,6 +179,8 @@ class CDSDDataset(Dataset):
 
         waveform_len = waveform.size()[-1]
         audio_data = waveform
+        if self.transform is not None:
+            audio_data = self.transform(audio_data)
 
         labels_dict = self.get_labels(idx)
         is_stft = labels_dict['is_stft']

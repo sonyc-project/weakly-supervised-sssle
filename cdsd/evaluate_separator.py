@@ -60,6 +60,10 @@ def parse_arguments(args):
                         action='store_true',
                         help='If true, save the reconstructed audio')
 
+    parser.add_argument('--save-masks',
+                        action='store_true',
+                        help='If true, save the estimated masks')
+
     parser.add_argument('-n', '--num-data-workers',
                         type=int, default=1,
                         help='Number of workers used for data loading.')
@@ -67,7 +71,7 @@ def parse_arguments(args):
     return parser.parse_args(args)
 
 
-def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, save_audio=False):
+def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, save_audio=False, save_masks=False):
     # Set up device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -211,8 +215,9 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                 if save_audio:
                     recon_audio_dir = os.path.join(output_dir, "reconstructed_audio")
                     os.makedirs(recon_audio_dir, exist_ok=True)
-                recon_masks_dir = os.path.join(output_dir, "reconstructed_masks")
-                os.makedirs(recon_masks_dir, exist_ok=True)
+                if save_masks:
+                    recon_masks_dir = os.path.join(output_dir, "reconstructed_masks")
+                    os.makedirs(recon_masks_dir, exist_ok=True)
 
                 # Compute dBFS for the mixture
                 subset_results["mixture_dbfs"] += compute_dbfs(mixture_waveforms, SAMPLE_RATE, device=device).squeeze().tolist()
@@ -284,20 +289,21 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                                             sample_rate=SAMPLE_RATE)
                             assert os.path.exists(recon_out_path)
 
-                    # Save ideal and predicted masks for analysis and debugging
-                    for f_idx in range(masks.size()[0]):
-                        file = dataset.files[batch_idx * batch_size + f_idx]
-                        recon_out_path = os.path.join(recon_masks_dir, "{}_{}_recon.npz".format(file, label))
+                    if save_masks:
+                        # Save ideal and predicted masks for analysis and debugging
+                        for f_idx in range(masks.size()[0]):
+                            file = dataset.files[batch_idx * batch_size + f_idx]
+                            recon_out_path = os.path.join(recon_masks_dir, "{}_{}_recon.npz".format(file, label))
 
-                        recon_mask = masks[f_idx, ..., label_idx].cpu().numpy()
-                        ideal_mask = source_ideal_ratio_mask[f_idx, ...].cpu().numpy()
-                        file_mixture_maggram = mixture_maggram[f_idx, ...].cpu().numpy()
+                            recon_mask = masks[f_idx, ..., label_idx].cpu().numpy()
+                            ideal_mask = source_ideal_ratio_mask[f_idx, ...].cpu().numpy()
+                            file_mixture_maggram = mixture_maggram[f_idx, ...].cpu().numpy()
 
-                        np.savez_compressed(recon_out_path,
-                                            recon_mask=recon_mask,
-                                            ideal_mask=ideal_mask,
-                                            mixture_spectrogram=file_mixture_maggram)
-                        assert os.path.exists(recon_out_path)
+                            np.savez_compressed(recon_out_path,
+                                                recon_mask=recon_mask,
+                                                ideal_mask=ideal_mask,
+                                                mixture_spectrogram=file_mixture_maggram)
+                            assert os.path.exists(recon_out_path)
 
                 del x, clip_labels, frame_labels, mixture_waveforms, mixture_maggram, \
                     mixture_phasegram, cos_phasegram, sin_phasegram, \
@@ -325,4 +331,5 @@ if __name__ == "__main__":
              train_config=train_config,
              output_dir=args.output_dir,
              num_data_workers=args.num_data_workers,
-             save_audio=args.save_audio)
+             save_audio=args.save_audio,
+             save_masks=args.save_masks)
