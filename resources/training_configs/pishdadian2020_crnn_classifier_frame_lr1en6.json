@@ -12,25 +12,6 @@
         }
     ],
 
-    "separator": {
-        "model": "BLSTMSpectrogramSeparator",
-        "input_transforms": [
-            {
-                "name": "AmplitudeToDB",
-                "parameters": {
-                    "stype": "magnitude"
-                }
-            }
-        ],
-        "parameters": {
-            "n_bins": 257,
-            "n_layers": 3,
-            "hidden_dim": 600,
-            "bias": true
-        }
-    },
-
-
     "classifier": {
         "model": "CRNNSpectrogramClassifier",
         "parameters": {
@@ -43,31 +24,18 @@
         },
         "input_transforms": [],
 
-        "trainable": false,
-        "pretrained_path": "/scratch/jtc440/cdsd/models/pishdadian2020_crnn_classifier/classifier_best.pt"
-    },
-
-    "losses": {
-        "mixture": {
-            "name": "mixture_loss",
-            "margin": 0.5,
-            "weight": 100.0,
-            "energy_masking": true
-        },
-        "classification": {
-            "weight": 1.0
-        }
+        "trainable": true
     },
 
     "training": {
-        "batch_size": 8,
+        "batch_size": 32,
         "num_epochs": 50,
         "label_mode": "frame",
         "class_prior_weighting": true,
         "optimizer": {
             "name": "Adam",
             "parameters": {
-                "lr": 0.0001
+                "lr": 0.000001
             }
         }
     }

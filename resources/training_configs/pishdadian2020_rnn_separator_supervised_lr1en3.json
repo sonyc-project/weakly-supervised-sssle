@@ -1,0 +1,51 @@
+{
+    "input_transforms": [
+        {
+            "name": "Spectrogram",
+            "parameters": {
+                "n_fft": 512,
+                "hop_length": 128,
+                "window_fn": "sqrt_hann_window",
+                "power": 1.0,
+                "window_scaling": true
+            }
+        }
+    ],
+
+    "separator": {
+        "model": "BLSTMSpectrogramSeparator",
+        "input_transforms": [
+            {
+                "name": "AmplitudeToDB",
+                "parameters": {
+                    "stype": "magnitude"
+                }
+            }
+        ],
+        "parameters": {
+            "n_bins": 257,
+            "n_layers": 3,
+            "hidden_dim": 600,
+            "bias": true
+        }
+    },
+
+    "losses": {
+        "separation": {
+            "energy_masking": true
+        }
+    },
+
+    "training": {
+        "batch_size": 8,
+        "num_epochs": 50,
+        "class_prior_weighting": true,
+        "optimizer": {
+            "name": "Adam",
+            "parameters": {
+                "lr": 0.001
+            }
+        }
+    }
+
+}

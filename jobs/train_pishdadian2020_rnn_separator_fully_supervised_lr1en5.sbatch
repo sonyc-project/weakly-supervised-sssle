@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=fsss
+#SBATCH --job-name=fssslr5
 #SBATCH --nodes=1
 #SBATCH --tasks-per-node=1
 #SBATCH --gres=gpu:p40:1
@@ -9,12 +9,12 @@
 #SBATCH --mem=20GB
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=jtc440@nyu.edu
-#SBATCH --output=train_pishdadian2020_rnn_separator_fully_supervised.out
+#SBATCH --output=train_pishdadian2020_rnn_separator_fully_supervised_lr1en5.out
 
 set -e
 
 # If there's already a job running, exit
-if [ "$(squeue -u jtc440 | tail -n +2 | grep 'fsss' | grep ' R ' | wc -l)" -gt 1 ]; then
+if [ "$(squeue -u jtc440 | tail -n +2 | grep 'fssslr5' | grep ' R ' | wc -l)" -gt 1 ]; then
     exit 0;  
 fi
 
@@ -30,13 +30,12 @@ source activate cdsd
 
 /home/jtc440/miniconda3/envs/cdsd/bin/python -u /home/jtc440/dev/class_dependent_spl_decomposition/cdsd/train_fully_supervised_separator.py \
     /beegfs/jtc440/cdsd-data/pishdadian2020-lambda5_soundscapes \
-    /home/jtc440/dev/class_dependent_spl_decomposition/resources/training_configs/pishdadian2020_rnn_separator_supervised.json \
-    /scratch/jtc440/cdsd/models/pishdadian2020_rnn_separator_supervised \
+    /home/jtc440/dev/class_dependent_spl_decomposition/resources/training_configs/pishdadian2020_rnn_separator_supervised_lr1en5.json \
+    /scratch/jtc440/cdsd/models/pishdadian2020_rnn_separator_supervised_lr1en5 \
     --num-data-workers 4 \
     --checkpoint-interval 5
 
 /home/jtc440/miniconda3/envs/cdsd/bin/python -u /home/jtc440/dev/class_dependent_spl_decomposition/cdsd/evaluate_fully_supervised_separator.py \
     /beegfs/jtc440/cdsd-data/pishdadian2020-lambda5_soundscapes \
-    /scratch/jtc440/cdsd/models/pishdadian2020_rnn_separator_supervised/config.json \
-    --num-data-workers 4 \
-    --save-audio
+    /scratch/jtc440/cdsd/models/pishdadian2020_rnn_separator_supervised_lr1en5/config.json \
+    --num-data-workers 4
