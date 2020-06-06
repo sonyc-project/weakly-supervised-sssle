@@ -2,6 +2,7 @@ import argparse
 import os
 import json
 import sys
+import shutil
 import torch
 import torch.nn as nn
 import numpy as np
@@ -97,6 +98,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
     class_prior_weighting = train_config["training"].get("class_prior_weighting", False)
     energy_masking = train_config["losses"]["separation"].get("energy_masking", False)
+    patience = train_config["training"].get("early_stopping_patience", 5)
 
     # JTC: Should we still provide params with requires_grad=False here?
     optimizer = get_optimizer(separator.parameters(), train_config)
@@ -108,6 +110,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
     # Set up checkpoint paths
     separator_best_ckpt_path = os.path.join(output_dir, "separator_best.pt")
     separator_latest_ckpt_path = os.path.join(output_dir, "separator_latest.pt")
+    separator_earlystopping_ckpt_path = os.path.join(output_dir, "separator_earlystopping.pt")
     optimizer_latest_ckpt_path = os.path.join(output_dir, "optimizer_latest.pt")
 
     config_path = os.path.join(output_dir, "config.json")
@@ -120,6 +123,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
         save_config["separator"]["latest_path"] = separator_latest_ckpt_path
         json.dump(save_config, f)
 
+    early_stopping_wait = 0
+    early_stopping_flag = False
     num_epochs = train_config["training"]["num_epochs"]
     for epoch in range(num_epochs):
         print("=============== Epoch {}/{} =============== ".format(epoch + 1, num_epochs))
@@ -304,10 +309,23 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
         if history_logger.valid_loss_improved():
             # Checkpoint best model
             torch.save(separator_state_dict, separator_best_ckpt_path)
+            early_stopping_wait = 0
+        else:
+            early_stopping_wait += 1
+
+        # Early stopping
+        if not early_stopping_flag and early_stopping_wait >= patience:
+            shutil.copy(separator_best_ckpt_path, separator_earlystopping_ckpt_path)
+            # Make sure that we only hit early stopping once
+            early_stopping_flag = True
 
         # Always save latest states
         torch.save(separator_state_dict, separator_latest_ckpt_path)
         torch.save(optimizer.state_dict(), optimizer_latest_ckpt_path)
+
+    # If early stopping was never hit, use best overall model
+    if not early_stopping_flag:
+        shutil.copy(separator_best_ckpt_path, separator_earlystopping_ckpt_path)
 
     print("Finished training. Results available at {}".format(output_dir))
 
