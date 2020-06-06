@@ -3,9 +3,13 @@ import sys
 import pandas as pd
 import soundfile as sf
 import oyaml as yaml
+import subprocess
 import jams
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from tqdm import tqdm
+
+
+SAMPLE_RATE = 16000
 
 
 def parse_arguments(args):
