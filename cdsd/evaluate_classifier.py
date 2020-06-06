@@ -26,6 +26,10 @@ def parse_arguments(args):
                         type=str,
                         help='Path where outputs will be saved. Defaults to the one specified in the train configuration file.')
 
+    parser.add_argument('--checkpoint',
+                        type=str, default='best', choices=('best', 'latest', 'earlystopping'),
+                        help='Type of model checkpoint to load.')
+
     parser.add_argument('-n', '--num-data-workers',
                         type=int, default=1,
                         help='Number of workers used for data loading.')
@@ -33,7 +37,7 @@ def parse_arguments(args):
     return parser.parse_args(args)
 
 
-def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1):
+def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, checkpoint='best'):
     # Set up device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -59,7 +63,8 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1):
                                       dataset=train_dataset,
                                       label_mode=label_mode,
                                       require_init=True,
-                                      trainable=False)
+                                      trainable=False,
+                                      checkpoint=checkpoint)
     if torch.cuda.device_count() > 1:
         print("Using {} GPUs for evaluation.".format(torch.cuda.device_count()))
         classifier = nn.DataParallel(classifier)
@@ -96,7 +101,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1):
             subset_results.update({label + "_presence_pred": [] for label in dataset.labels})
             subset_results["filenames"] = list(dataset.files) # Assuming that dataloader preserves order
 
-            subset_results_path = os.path.join(output_dir, "classification_results_{}.csv".format(subset))
+            subset_results_path = os.path.join(output_dir, "classification_results_{}_{}.csv".format(checkpoint, subset))
 
             for batch in tqdm(dataloader, total=num_batches):
                 x = batch["audio_data"].to(device)
@@ -132,4 +137,5 @@ if __name__ == "__main__":
     evaluate(root_data_dir=args.root_data_dir,
              train_config=train_config,
              output_dir=args.output_dir,
-             num_data_workers=args.num_data_workers)
+             num_data_workers=args.num_data_workers,
+             checkpoint=args.checkpoint)

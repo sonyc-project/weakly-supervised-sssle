@@ -41,6 +41,10 @@ def parse_arguments(args):
                         action='store_true',
                         help='If true, save the estimated masks')
 
+    parser.add_argument('--checkpoint',
+                        type=str, default='best', choices=('best', 'latest', 'earlystopping'),
+                        help='Type of model checkpoint to load.')
+
     parser.add_argument('-n', '--num-data-workers',
                         type=int, default=1,
                         help='Number of workers used for data loading.')
@@ -48,7 +52,7 @@ def parse_arguments(args):
     return parser.parse_args(args)
 
 
-def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, save_audio=False, save_masks=False):
+def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, save_audio=False, save_masks=False, checkpoint='best'):
     # Set up device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -92,7 +96,8 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                                     dataset=train_dataset,
                                     require_init=True,
                                     trainable=False,
-                                    device=device)
+                                    device=device,
+                                    checkpoint=checkpoint)
     if torch.cuda.device_count() > 1:
         print("Using {} GPUs for evaluation.".format(torch.cuda.device_count()))
         separator = nn.DataParallel(separator)
@@ -129,7 +134,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
             subset_results.update({label + "_presence_gt": [] for label in dataset.labels})
             subset_results.update({label + "_presence_frame_gt": [] for label in dataset.labels})
 
-            subset_results_path = os.path.join(output_dir, "fully_supervised_separation_results_{}.csv".format(subset))
+            subset_results_path = os.path.join(output_dir, "fully_supervised_separation_results_{}_{}.csv".format(checkpoint, subset))
 
             for batch_idx, batch in tqdm(enumerate(dataloader), total=num_batches):
                 x = batch["audio_data"].to(device)
@@ -162,10 +167,10 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                 masks = separator(x)
 
                 if save_audio:
-                    recon_audio_dir = os.path.join(output_dir, "reconstructed_audio")
+                    recon_audio_dir = os.path.join(output_dir, "{}_reconstructed_audio".format(checkpoint))
                     os.makedirs(recon_audio_dir, exist_ok=True)
                 if save_masks:
-                    recon_masks_dir = os.path.join(output_dir, "reconstructed_masks")
+                    recon_masks_dir = os.path.join(output_dir, "{}_reconstructed_masks".format(checkpoint))
                     os.makedirs(recon_masks_dir, exist_ok=True)
 
                 # Compute dBFS for the mixture
@@ -266,4 +271,5 @@ if __name__ == "__main__":
              output_dir=args.output_dir,
              num_data_workers=args.num_data_workers,
              save_audio=args.save_audio,
-             save_masks=args.save_masks)
+             save_masks=args.save_masks,
+             checkpoint=args.checkpoint)

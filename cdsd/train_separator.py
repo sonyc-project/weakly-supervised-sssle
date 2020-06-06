@@ -118,6 +118,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
     class_prior_weighting = train_config["training"].get("class_prior_weighting", False)
     patience = train_config["training"].get("early_stopping_patience", 5)
+    early_stopping_terminate = train_config["training"].get("early_stopping_terminate", False)
 
     # JTC: Should we still provide params with requires_grad=False here?
     all_params = chain(separator.parameters(), classifier.parameters())
@@ -152,8 +153,10 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
         save_config["num_data_workers"] = num_data_workers
         save_config["separator"]["best_path"] = separator_best_ckpt_path
         save_config["separator"]["latest_path"] = separator_latest_ckpt_path
+        save_config["separator"]["earlystopping_path"] = separator_earlystopping_ckpt_path
         save_config["classifier"]["best_path"] = classifier_best_ckpt_path
         save_config["classifier"]["latest_path"] = classifier_latest_ckpt_path
+        save_config["classifier"]["earlystopping_path"] = classifier_earlystopping_ckpt_path
         json.dump(save_config, f)
 
     early_stopping_wait = 0
@@ -409,6 +412,11 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
         else:
             early_stopping_wait += 1
 
+        # Always save latest states
+        torch.save(separator_state_dict, separator_latest_ckpt_path)
+        torch.save(classifier_state_dict, classifier_latest_ckpt_path)
+        torch.save(optimizer.state_dict(), optimizer_latest_ckpt_path)
+
         # Early stopping
         if not early_stopping_flag and early_stopping_wait >= patience:
             shutil.copy(separator_best_ckpt_path, separator_earlystopping_ckpt_path)
@@ -416,10 +424,10 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
             # Make sure that we only hit early stopping once
             early_stopping_flag = True
 
-        # Always save latest states
-        torch.save(separator_state_dict, separator_latest_ckpt_path)
-        torch.save(classifier_state_dict, classifier_latest_ckpt_path)
-        torch.save(optimizer.state_dict(), optimizer_latest_ckpt_path)
+            # Terminate training if enabled
+            if early_stopping_terminate:
+                break
+
 
     # If early stopping was never hit, use best overall model
     if not early_stopping_flag:

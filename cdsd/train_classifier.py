@@ -101,6 +101,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
     class_prior_weighting = train_config["training"].get("class_prior_weighting", False)
     class_frame_priors = train_dataset.class_frame_priors.to(device)
     patience = train_config["training"].get("early_stopping_patience", 5)
+    early_stopping_terminate = train_config["training"].get("early_stopping_terminate", False)
 
     # JTC: Should we still provide params with requires_grad=False here?
     optimizer = get_optimizer(classifier.parameters(), train_config)
@@ -123,6 +124,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         save_config["num_data_workers"] = num_data_workers
         save_config["classifier"]["best_path"] = classifier_best_ckpt_path
         save_config["classifier"]["latest_path"] = classifier_latest_ckpt_path
+        save_config["classifier"]["earlystopping_path"] = classifier_earlystopping_ckpt_path
         json.dump(save_config, f)
 
     early_stopping_wait = 0
@@ -224,15 +226,19 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         else:
             early_stopping_wait += 1
 
+        # Always save latest states
+        torch.save(classifier_state_dict, classifier_latest_ckpt_path)
+        torch.save(optimizer.state_dict(), optimizer_latest_ckpt_path)
+
         # Early stopping
         if not early_stopping_flag and early_stopping_wait >= patience:
             shutil.copy(classifier_best_ckpt_path, classifier_earlystopping_ckpt_path)
             # Make sure that we only hit early stopping once
             early_stopping_flag = True
 
-        # Always save latest states
-        torch.save(classifier_state_dict, classifier_latest_ckpt_path)
-        torch.save(optimizer.state_dict(), optimizer_latest_ckpt_path)
+            # Terminate training if enabled
+            if early_stopping_terminate:
+                break
 
     # If early stopping was never hit, use best overall model
     if not early_stopping_flag:

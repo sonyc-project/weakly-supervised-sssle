@@ -237,7 +237,7 @@ class CRNNSpectrogramClassifier(Classifier):
         return x
 
 
-def construct_separator(train_config, dataset, weights_path=None, require_init=False, trainable=True, device=None):
+def construct_separator(train_config, dataset, weights_path=None, require_init=False, trainable=True, device=None, checkpoint='best'):
     ## Build separator
     separator_config = train_config["separator"]
 
@@ -253,9 +253,13 @@ def construct_separator(train_config, dataset, weights_path=None, require_init=F
         raise ValueError("Invalid separator model type: {}".format(separator_config["model"]))
 
     # Load pretrained model weights for separator if specified
-    weights_path = weights_path \
-                   or separator_config.get("best_path") \
-                   or separator_config.get("pretrained_path")
+    if not weights_path:
+        if checkpoint == 'best':
+            weights_path = separator_config.get("best_path") \
+                           or separator_config.get("pretrained_path")
+        else:
+            weights_path = separator_config.get(checkpoint + "_path")
+
     if weights_path:
         weights = torch.load(weights_path, map_location=device)
         try:
@@ -277,7 +281,7 @@ def construct_separator(train_config, dataset, weights_path=None, require_init=F
     return separator
 
 
-def construct_classifier(train_config, dataset, label_mode, weights_path=None, require_init=False, trainable=True, device=None):
+def construct_classifier(train_config, dataset, label_mode, weights_path=None, require_init=False, trainable=True, device=None, checkpoint='best'):
     ## Build classifier
     classifier_config = train_config["classifier"]
 
@@ -303,9 +307,13 @@ def construct_classifier(train_config, dataset, label_mode, weights_path=None, r
         raise ValueError("Invalid classifier model type: {}".format(classifier_config["model"]))
 
     # Load pretrained model weights for classifier if specified
-    weights_path = weights_path \
-                   or classifier_config.get("best_path") \
-                   or classifier_config.get("pretrained_path")
+    if not weights_path:
+        if checkpoint == 'best':
+            weights_path = classifier_config.get("best_path") \
+                           or classifier_config.get("pretrained_path")
+        else:
+            weights_path = classifier_config.get(checkpoint + "_path")
+
     if weights_path:
         weights = torch.load(weights_path, map_location=device)
         try:
