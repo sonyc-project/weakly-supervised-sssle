@@ -148,8 +148,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
             energy_mask = batch["energy_mask"].to(device)
             curr_batch_size = x.size()[0]
             norm_factor = get_normalization_factor(x, energy_mask,
-                                                   energy_masking=energy_masking,
-                                                   squeeze=True)
+                                                   energy_masking=energy_masking)
 
             if epoch == 0 and batch_idx == 0:
                 print("Input size: {}".format(x.size()))

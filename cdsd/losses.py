@@ -30,15 +30,12 @@ def get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking=No
     return mix_present_spec_diff_flat, absent_spec_flat
 
 
-def get_normalization_factor(x, energy_mask, energy_masking=None, squeeze=False):
+def get_normalization_factor(x, energy_mask, energy_masking=None):
     batch_size, n_channel, n_freq, n_time = x.size()
     if energy_masking is None:
         return torch.tensor(n_freq * n_time, dtype=x.dtype, device=x.device)
     else:
-        norm_factor = energy_mask.sum(dim=-1, keepdims=True)[:, None, None, :]
-        if squeeze:
-            norm_factor = norm_factor.squeeze()
-        return norm_factor
+        return energy_mask.sum(dim=-1) * n_freq
 
 
 def mixture_loss(x, labels, masks, energy_mask, energy_masking=None):
