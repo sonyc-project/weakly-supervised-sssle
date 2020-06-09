@@ -8,7 +8,7 @@ import torchaudio
 import torchvision
 from torch.utils.data import Dataset
 from torchaudio.transforms import AmplitudeToDB, MelScale
-from spectrum import Spectrogram, MelSpectrogram
+from transforms import Spectrogram, MelSpectrogram, LogMagnitude
 from utils import get_torch_window_fn
 
 # Note: if we need to use pescador, see https://github.com/pescadores/pescador/issues/133
@@ -236,6 +236,9 @@ class CDSDDataset(Dataset):
             if self.transform is not None:
                 for label in self.labels:
                     sample[label + '_transformed'] = self.transform(event_waveforms[label + '_waveform'])
+                    if is_stft:
+                        # Take element-wise min of source and mixture spectrograms
+                        sample[label + '_transformed'] = torch.min(audio_data, sample[label + '_transformed'])
 
         return sample
 
@@ -249,6 +252,8 @@ def get_data_transforms(train_config):
             transform_params = transform_config["parameters"]
             if transform_name == "AmplitudeToDB":
                 transform_list.append(AmplitudeToDB(**transform_params))
+            elif transform_name == "LogMagnitude":
+                transform_list.append(LogMagnitude(**transform_params))
             elif transform_name == "MelScale":
                 transform_list.append(MelScale(sample_rate=SAMPLE_RATE, **transform_params))
             elif transform_name == "MelSpectrogram":

@@ -16,10 +16,8 @@
         "model": "BLSTMSpectrogramSeparator",
         "input_transforms": [
             {
-                "name": "AmplitudeToDB",
-                "parameters": {
-                    "stype": "magnitude"
-                }
+                "name": "LogMagnitude",
+                "parameters": {}
             }
         ],
         "parameters": {
@@ -64,6 +62,8 @@
         "num_epochs": 50,
         "label_mode": "frame",
         "class_prior_weighting": true,
+        "early_stopping_patience": 5,
+        "early_stopping_terminate": true,
         "optimizer": {
             "name": "Adam",
             "parameters": {

@@ -12,7 +12,7 @@ from tqdm import tqdm
 from data import get_data_transforms, CDSDDataset, SAMPLE_RATE
 from models import construct_separator, construct_classifier
 from torchaudio.functional import magphase
-from spectrum import istft, spectrogram
+from transforms import istft, spectrogram
 from utils import get_torch_window_fn
 from loudness import compute_dbfs
 

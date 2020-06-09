@@ -183,8 +183,33 @@ class MelSpectrogram(TorchAudioMelSpectrogram):
                                        wkwargs=wkwargs)
 
 
+class LogMagnitude(torch.nn.Module):
+    r"""Turn a tensor from linear magnitude scale to the log scale.
 
+    Args:
+        eps (float, optional): small value added before taking log. (Default: ``1e-20``)
+        logtype (str, optional): type of log to take, w.r.t. base (Default: ``'log'``)
+    """
+    def __init__(self, eps=1e-20, logtype='log'):
+        super(LogMagnitude, self).__init__()
+        self.eps = eps
+        if logtype == 'log':
+            self.logfunc = torch.log
+        elif logtype == 'log10':
+            self.logfunc = torch.log10
+        elif logtype == 'log2':
+            self.logfunc = torch.log2
+        else:
+            raise ValueError('Invalid log type: {}'.format(logtype))
 
+    def forward(self, x):
+        r"""Takes magnitude and log of input.
 
+        Args:
+            x (Tensor): Input tensor.
 
+        Returns:
+            Tensor: Output tensor in log magnitude scale.
+        """
+        return self.logfunc(torch.abs(x) + self.eps)
 
