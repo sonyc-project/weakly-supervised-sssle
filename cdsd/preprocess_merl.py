@@ -23,28 +23,35 @@ def parse_arguments(args):
 
 
 def run(data_dir, out_dir):
+    prefix = "pishdadian2020merl-lambda5"
     for subset in ('train', 'test', 'valid'):
         src_subset_dir = os.path.join(data_dir, subset)
         dst_subset_dir = os.path.join(out_dir, subset)
         metadata_dir = os.path.join(src_subset_dir, "metadata")
-        mixture_dir = os.path.join(src_subset_dir, "metadata")
+        mixture_dir = os.path.join(src_subset_dir, "mix")
 
         os.makedirs(dst_subset_dir, exist_ok=True)
 
         for fname in os.listdir(metadata_dir):
             metadata_path = os.path.join(metadata_dir, fname)
-            ex_name = os.path.splitext(fname)[0].lstrip('0')
-            audio_fname = ex_name + '.wav'
-            src_mixture_path = os.path.join(mixture_dir, audio_fname)
+            src_ex_name = os.path.splitext(fname)[0]
+            num = src_ex_name.lstrip("0")
+            if not num:
+                num = "0"
+
+            dst_ex_name = prefix + "_" + num
+            src_audio_fname = src_ex_name + '.wav'
+            dst_audio_fname = dst_ex_name + '.wav'
+            src_mixture_path = os.path.join(mixture_dir, src_audio_fname)
 
             # Get audio duration
             duration = librosa.get_duration(filename=src_mixture_path)
 
             # Set up output paths
-            dst_mixture_path = os.path.join(dst_subset_dir, "merl_" + audio_fname)
-            jams_path = os.path.join(dst_subset_dir, "merl_" + ex_name + '.jams')
-            events_dir = os.path.join(dst_subset_dir, ex_name + "_events")
-            os.makedirs(events_dir, exist_ok=False)
+            dst_mixture_path = os.path.join(dst_subset_dir, dst_audio_fname)
+            jams_path = os.path.join(dst_subset_dir, dst_ex_name + '.jams')
+            events_dir = os.path.join(dst_subset_dir, dst_ex_name + "_events")
+            os.makedirs(events_dir, exist_ok=True)
 
             # Copy mixture
             shutil.copy(src_mixture_path, dst_mixture_path)
@@ -83,12 +90,13 @@ def run(data_dir, out_dir):
                            },
                            confidence=1.0)
 
+            jam.annotations.append(ann)
             jam.save(jams_path)
 
             # Copy separated sources
             for idx, label in enumerate(present_labels):
-                label_dir = os.path.join(data_dir, "s_" + label)
-                src_source_path = os.path.join(label_dir, audio_fname)
+                label_dir = os.path.join(src_subset_dir, "s_" + label)
+                src_source_path = os.path.join(label_dir, src_audio_fname)
                 dst_source_fname = "foreground{}_{}.wav".format(idx, label)
                 dst_source_path = os.path.join(events_dir, dst_source_fname)
                 shutil.copy(src_source_path, dst_source_path)

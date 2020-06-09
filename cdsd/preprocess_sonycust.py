@@ -124,6 +124,7 @@ def run(annotation_path, taxonomy_path, data_dir, out_dir):
                                "time_stretch": None
                            },
                            confidence=1.0)
+        jam.annotations.append(ann)
 
         # Save JAMS file
         jam.save(dst_jams_path)
