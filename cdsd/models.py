@@ -28,6 +28,43 @@ class Separator(nn.Module):
         return x
 
 
+def chainer_init_blstm(blstm):
+    """Initialize BLSTM weights a la Chainer defaults"""
+    for name, param in blstm.named_parameters():
+        if 'weight' in name:
+            nn.init.kaiming_normal_(param)
+        elif 'bias' in name:
+            # Bias structured as [b_ig | b_fg | b_gg | b_og]
+            # https://discuss.pytorch.org/t/set-forget-gate-bias-of-lstm/1745/2
+            # https://www.gregcondit.com/articles/lstm-ref-card
+            size = param.shape[0]
+            forget_start = size // 4
+            forget_end = size // 2
+            # Init non-forget weights
+            nn.init.constant_(param[:forget_start], 0.0)
+            nn.init.constant_(param[forget_end:], 0.0)
+            # Init forget weights
+            nn.init.constant_(param[forget_start:forget_end], 1.0)
+
+
+def chainer_init_fc(fc):
+    """Initialize FC weights a la Chainer defaults"""
+    for name, param in fc.named_parameters():
+        if 'weight' in name:
+            nn.init.kaiming_normal_(param)
+        elif 'bias' in name:
+            nn.init.constant_(param, 0.0)
+
+
+def chainer_init_conv(conv):
+    """Initialize convolution weights a la Chainer defaults"""
+    for name, param in conv.named_parameters():
+        if 'weight' in name:
+            nn.init.kaiming_normal_(param)
+        elif 'bias' in name:
+            nn.init.constant_(param, 0.0)
+
+
 class BLSTMSpectrogramSeparator(Separator):
     def __init__(self, n_bins, n_classes, n_layers=3, hidden_dim=600, bias=False, transform=None):
         super(BLSTMSpectrogramSeparator, self).__init__(n_classes, transform=transform)
@@ -37,14 +74,12 @@ class BLSTMSpectrogramSeparator(Separator):
                              batch_first=True,
                              bias=bias,
                              bidirectional=True)
+        chainer_init_blstm(self.blstm)
         self.blstm.flatten_parameters()
 
         self.fc = nn.Linear(2*hidden_dim, n_bins * n_classes, bias=bias)
+        chainer_init_fc(self.fc)
         self.n_bins = n_bins
-
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight.data)
 
     def _forward(self, x):
         batch_size = len(x)
@@ -107,10 +142,12 @@ class BLSTMSpectrogramClassifier(Classifier):
                              bias=bias,
                              batch_first=True,
                              bidirectional=True)
+        chainer_init_blstm(self.blstm)
         self.blstm.flatten_parameters()
 
         # PyTorch automatically takes care of time-distributing for linear layers
         self.fc = nn.Linear(2*hidden_dim, self.n_classes, bias=bias)
+        chainer_init_fc(self.fc)
 
     def forward_frame(self, x):
         # Remove channel dimension
@@ -126,7 +163,8 @@ class BLSTMSpectrogramClassifier(Classifier):
 
 class CRNNSpectrogramClassifier(Classifier):
     def __init__(self, n_bins, n_classes, blstm_hidden_dim=100, bias=False,
-                 pooling='max', num_input_channels=1, conv_kernel_size=(5,5), transform=None):
+                 pooling='max', num_input_channels=1, conv_kernel_size=(5,5),
+                 transform=None):
         super(CRNNSpectrogramClassifier, self).__init__(n_classes,
                                                         pooling=pooling,
                                                         transform=transform)
@@ -141,6 +179,7 @@ class CRNNSpectrogramClassifier(Classifier):
                                kernel_size=conv_kernel_size,
                                padding=self.conv_padding,
                                bias=bias)
+        chainer_init_conv(self.conv1)
         self.conv1_bin_out = conv2d_output_shape(n_bins,
                                             kernel_size=conv_kernel_size,
                                             padding=self.conv_padding)[0]
@@ -158,6 +197,7 @@ class CRNNSpectrogramClassifier(Classifier):
                                kernel_size=conv_kernel_size,
                                padding=same_pad(conv_kernel_size),
                                bias=bias)
+        chainer_init_conv(self.conv2)
         self.conv2_bin_out = conv2d_output_shape(self.pool1_bin_out,
                                             kernel_size=conv_kernel_size,
                                             padding=self.conv_padding)[0]
@@ -173,6 +213,7 @@ class CRNNSpectrogramClassifier(Classifier):
                                kernel_size=conv_kernel_size,
                                padding=same_pad(conv_kernel_size),
                                bias=bias)
+        chainer_init_conv(self.conv3)
         self.conv3_bin_out = conv2d_output_shape(self.pool2_bin_out,
                                             kernel_size=conv_kernel_size,
                                             padding=self.conv_padding)[0]
@@ -188,10 +229,12 @@ class CRNNSpectrogramClassifier(Classifier):
                              bias=bias,
                              batch_first=True,
                              bidirectional=True)
+        chainer_init_blstm(self.blstm)
         self.blstm.flatten_parameters()
 
         # PyTorch automatically takes care of time-distributing for linear layers
         self.fc = nn.Linear(2*blstm_hidden_dim, self.n_classes, bias=bias)
+        chainer_init_fc(self.fc)
 
     def get_num_frames(self, num_input_frames):
         conv1_frame_out = conv2d_output_shape(num_input_frames,
