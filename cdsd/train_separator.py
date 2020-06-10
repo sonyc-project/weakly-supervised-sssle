@@ -183,9 +183,9 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
         torch.cuda.empty_cache()
         for batch_idx, batch in enumerate(tqdm(train_dataloader, total=num_train_batches)):
             x = batch["audio_data"].to(device)
-            clip_labels = batch["clip_labels"].to(device)
             if label_mode == "frame":
-                cls_target_labels = batch["frame_labels"].to(device)
+                cls_target_labels_raw = batch["frame_labels"].to(device)
+                cls_target_labels = cls_target_labels_raw
                 # Downsample labels if necessary
                 if label_maxpool is not None:
                     cls_target_labels = label_maxpool(cls_target_labels.transpose(1, 2)).transpose(1, 2)
@@ -199,7 +199,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     class_weights[..., class_idx][(-frame_labels + 1).bool()] = 1.0 / (1 - p)
                 del frame_labels
             else:
-                cls_target_labels = clip_labels
+                cls_target_labels_raw = batch["clip_labels"].to(device)
+                cls_target_labels = cls_target_labels_raw
                 class_weights = None
 
             energy_mask = batch["energy_mask"].to(device)
@@ -214,7 +215,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
             masks = separator(x)
 
             # Compute mixture loss for separator
-            train_mix_loss = mixture_loss_fn(x, cls_target_labels, masks, energy_mask)
+            train_mix_loss = mixture_loss_fn(x, cls_target_labels_raw, masks, energy_mask)
 
             # Pass mixture through classifier
             mix_cls_output = classifier(x)
@@ -271,8 +272,9 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 train_idxs_save = batch['index'][:num_debug_examples].cpu().numpy()
 
             # Cleanup
-            del x, clip_labels, cls_bce, cls_target_labels, masks, energy_mask, batch,\
-                mask, x_masked, mix_cls_output, src_cls_output, train_cls_loss, \
+            del x, cls_bce, cls_target_labels, \
+                cls_target_labels_raw, masks, energy_mask, batch, mask, \
+                x_masked, mix_cls_output, src_cls_output, train_cls_loss, \
                 train_mix_loss, train_total_loss, class_weights
             torch.cuda.empty_cache()
 
@@ -281,9 +283,9 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
         with torch.no_grad():
             for batch_idx, batch in enumerate(tqdm(valid_dataloader, total=num_valid_batches)):
                 x = batch["audio_data"].to(device)
-                clip_labels = batch["clip_labels"].to(device)
                 if label_mode == "frame":
-                    cls_target_labels = batch["frame_labels"].to(device)
+                    cls_target_labels_raw = batch["frame_labels"].to(device)
+                    cls_target_labels = cls_target_labels_raw
                     # Downsample labels if necessary
                     if label_maxpool is not None:
                         cls_target_labels = label_maxpool(cls_target_labels.transpose(1, 2)).transpose(1, 2)
@@ -297,7 +299,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                         class_weights[..., class_idx][(-frame_labels + 1).bool()] = 1.0 / (1 - p)
                     del frame_labels
                 else:
-                    cls_target_labels = clip_labels
+                    cls_target_labels_raw = batch["clip_labels"].to(device)
+                    cls_target_labels = cls_target_labels_raw
                     class_weights = None
 
                 energy_mask = batch["energy_mask"].to(device)
@@ -313,7 +316,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 mix_cls_output = classifier(x)
 
                 # Compute mixture loss for separator
-                valid_mix_loss = mixture_loss_fn(x, clip_labels, masks, energy_mask)
+                valid_mix_loss = mixture_loss_fn(x, cls_target_labels_raw, masks, energy_mask)
 
                 # Compute mixture classification_loss
                 if class_prior_weighting and label_mode == 'frame':
@@ -363,7 +366,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     valid_idxs_save = batch['index'][:num_debug_examples].cpu().numpy()
 
                 # Help garbage collection
-                del x, clip_labels, cls_bce, cls_target_labels, energy_mask, masks,\
+                del x, cls_bce, cls_target_labels, energy_mask, masks,\
                     batch, mask, x_masked, mix_cls_output, src_cls_output, \
                     valid_cls_loss, valid_mix_loss, valid_total_loss, class_weights
                 torch.cuda.empty_cache()
