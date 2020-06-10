@@ -312,11 +312,11 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 # Forward pass through separator
                 masks = separator(x)
 
-                # Pass mixture through classifier
-                mix_cls_output = classifier(x)
-
                 # Compute mixture loss for separator
                 valid_mix_loss = mixture_loss_fn(x, cls_target_labels_raw, masks, energy_mask)
+
+                # Pass mixture through classifier
+                mix_cls_output = classifier(x)
 
                 # Compute mixture classification_loss
                 if class_prior_weighting and label_mode == 'frame':
