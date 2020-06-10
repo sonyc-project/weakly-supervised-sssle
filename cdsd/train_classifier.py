@@ -142,10 +142,19 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
             x = batch["audio_data"].to(device)
             if label_mode == "clip":
                 labels = batch["clip_labels"].to(device)
+                class_weights = None
             else:
                 labels = batch["frame_labels"].to(device)
                 if label_maxpool is not None:
                     labels = label_maxpool(labels.transpose(1, 2)).transpose(1, 2)
+                class_weights = torch.zeros_like(labels, device=device)
+                frame_labels = None
+                for class_idx in range(train_dataset.num_labels):
+                    frame_labels = labels[..., class_idx]
+                    p = train_dataset.class_frame_priors[class_idx]
+                    class_weights[..., class_idx][frame_labels.bool()] = 1.0 / p
+                    class_weights[..., class_idx][(-frame_labels + 1).bool()] = 1.0 / (1 - p)
+                del frame_labels
 
             # Clear gradients
             optimizer.zero_grad()
@@ -155,7 +164,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
             # Compute classification_loss
             if class_prior_weighting and label_mode == 'frame':
                 cls_bce = F.binary_cross_entropy(output, labels, reduction='none')
-                cls_bce *= class_frame_priors[None, None, :]
+                cls_bce *= class_weights
                 train_loss = cls_bce.mean()
             else:
                 cls_bce = None
@@ -168,7 +177,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
             accum_train_loss += train_loss.item()
 
             # Cleanup
-            del x, labels, batch, output, train_loss, cls_bce
+            del x, labels, batch, output, train_loss, cls_bce, class_weights
             torch.cuda.empty_cache()
 
         # Evaluate on validation set
@@ -180,17 +189,26 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
                 x = batch["audio_data"].to(device)
                 if label_mode == "clip":
                     labels = batch["clip_labels"].to(device)
+                    class_weights = None
                 else:
                     labels = batch["frame_labels"].to(device)
                     if label_maxpool is not None:
                         labels = label_maxpool(labels.transpose(1, 2)).transpose(1, 2)
+                    class_weights = torch.zeros_like(labels, device=device)
+                    frame_labels = None
+                    for class_idx in range(train_dataset.num_labels):
+                        frame_labels = labels[..., class_idx]
+                        p = train_dataset.class_frame_priors[class_idx]
+                        class_weights[..., class_idx][frame_labels.bool()] = 1.0 / p
+                        class_weights[..., class_idx][(-frame_labels + 1).bool()] = 1.0 / (1 - p)
+                    del frame_labels
 
                 output = classifier(x)
 
                 # Compute classification_loss
                 if class_prior_weighting and label_mode == 'frame':
                     cls_bce = F.binary_cross_entropy(output, labels, reduction='none')
-                    cls_bce *= class_frame_priors[None, None, :]
+                    cls_bce *= class_weights
                     valid_loss = cls_bce.mean()
                 else:
                     cls_bce = None
@@ -199,7 +217,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
                 # Accumulate loss for epoch
                 accum_valid_loss += valid_loss.item()
 
-                del x, labels, batch, output, valid_loss, cls_bce
+                del x, labels, batch, output, valid_loss, cls_bce, class_weights
                 torch.cuda.empty_cache()
 
         train_loss = accum_train_loss / num_train_batches
