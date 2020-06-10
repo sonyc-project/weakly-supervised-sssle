@@ -214,7 +214,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
             masks = separator(x)
 
             # Compute mixture loss for separator
-            train_mix_loss = mixture_loss_fn(x, clip_labels, masks, energy_mask)
+            train_mix_loss = mixture_loss_fn(x, cls_target_labels, masks, energy_mask)
 
             # Pass mixture through classifier
             mix_cls_output = classifier(x)

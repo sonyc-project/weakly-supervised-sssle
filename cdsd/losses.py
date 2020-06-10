@@ -11,12 +11,21 @@ def get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking=No
     present_spec = torch.zeros_like(x)
     absent_spec = torch.zeros_like(x)
 
+    if labels.ndim == 2:
+        # Broadcast to channel, freq, and time dims
+        labels = labels[:, None, None, None, :]
+    elif labels.ndim == 3:
+        # Broadcast to channel and freq dims
+        labels = labels[:, None, None, :, :]
+    else:
+        raise ValueError('Invalid number of dimensions for labels: {} ({})'.format(labels.ndim, labels.shape))
+
     for idx in range(num_labels):
         mask = masks[..., idx]
         x_masked = x * mask
 
-        present_spec += x_masked * labels[:, None, None, idx:idx+1]
-        absent_spec += x_masked * (1 - labels[:, None, None, idx:idx+1])
+        present_spec += x_masked * labels[..., idx]
+        absent_spec += x_masked * (1 - labels[..., idx])
 
     mix_present_spec_diff = x - present_spec
 
