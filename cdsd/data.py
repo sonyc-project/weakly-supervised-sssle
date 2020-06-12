@@ -30,6 +30,7 @@ class CDSDDataset(Dataset):
         self.files = []
         self.subset = subset
         self.load_separation_data = load_separation_data
+        self.background_present = False
 
         labels = set()
         # Note, subset is being overwritten here
@@ -55,6 +56,8 @@ class CDSDDataset(Dataset):
                 for ann in jams_obj.annotations[0].data:
                     if ann.value['role'] == "foreground":
                         labels.add(ann.value['label'])
+                    elif ann.value['role'] == 'background':
+                        self.background_present = True
 
                 # If we are loading the separation data, only include the files
                 # that have separated sources
@@ -219,10 +222,7 @@ class CDSDDataset(Dataset):
 
                 # If if background is one of the labels, accumulate separately
                 if prefix.startswith('background'):
-                    if "background" in self.labels:
-                        label = "background"
-                    else:
-                        continue
+                    label = "background"
 
                 audio_path = os.path.join(event_dir, event_fname)
                 event_waveform, sr = torchaudio.load(audio_path)
@@ -234,11 +234,12 @@ class CDSDDataset(Dataset):
             sample.update(event_waveforms)
 
             if self.transform is not None:
-                for label in self.labels:
-                    sample[label + '_transformed'] = self.transform(event_waveforms[label + '_waveform'])
+                for waveform_key, waveform in event_waveforms.items():
+                    transformed_key = waveform_key.replace('waveform', 'transformed')
+                    sample[transformed_key] = self.transform(waveform)
                     if is_stft:
                         # Take element-wise min of source and mixture spectrograms
-                        sample[label + '_transformed'] = torch.min(audio_data, sample[label + '_transformed'])
+                        sample[transformed_key] = torch.min(audio_data, sample[transformed_key])
 
         return sample
 
