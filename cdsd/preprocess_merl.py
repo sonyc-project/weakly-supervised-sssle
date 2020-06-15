@@ -76,7 +76,7 @@ def run(data_dir, out_dir):
 
                 # Create annotation
                 ann.append(time=0.0,
-                           duration=duration,
+                           duration=end_ts - start_ts,
                            value={
                                "label": label,
                                "source_file": src_fname,
