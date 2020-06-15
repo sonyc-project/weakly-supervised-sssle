@@ -9,12 +9,11 @@ import pandas as pd
 import numpy as np
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from data import get_data_transforms, CDSDDataset, SAMPLE_RATE
+from data import get_data_transforms, CDSDDataset, SAMPLE_RATE, get_spec_params
 from models import construct_separator, construct_classifier
 from torchaudio.functional import magphase
 from transforms import istft, spectrogram
-from utils import get_torch_window_fn
-from loudness import compute_dbfs
+from loudness import compute_dbfs_spec
 
 
 EPS = 1e-8
@@ -88,23 +87,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
     os.makedirs(output_dir, exist_ok=True)
 
     # get STFT parameters:
-    params = {}
-    for transform_config in train_config["input_transforms"]:
-        if transform_config["name"] != 'Spectrogram':
-            continue
-        params = transform_config["parameters"]
-        break
-    spec_params = {
-        "pad": params.get("pad", 0),
-        "n_fft": params.get("n_fft", 400),
-        "power": params.get("power", 2.0),
-        "normalized": params.get("normalized", False),
-        "window_fn": get_torch_window_fn(params.get("window_fn", "hann_window")),
-        "window_scaling": params.get("window_scaling", False),
-        "wkwargs": params.get("wkwargs", {})
-    }
-    spec_params["win_length"] = params.get("win_length") or spec_params["n_fft"]
-    spec_params["hop_length"] = params.get("hop_length") or (spec_params["win_length"] // 2)
+    spec_params = get_spec_params(train_config)
 
     # Set up data loaders
     input_transform = get_data_transforms(train_config)
@@ -226,7 +209,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                     os.makedirs(recon_masks_dir, exist_ok=True)
 
                 # Compute dBFS for the mixture
-                subset_results["mixture_dbfs"] += compute_dbfs(mixture_waveforms, SAMPLE_RATE, device=device).squeeze().tolist()
+                subset_results["mixture_dbfs"] += compute_dbfs_spec(x, SAMPLE_RATE, train_config, device=device).squeeze().tolist()
 
                 for label_idx, label in enumerate(train_dataset.labels):
                     source_waveforms = batch[label + "_waveform"].to(device)
@@ -254,8 +237,8 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                         pad_mode="reflect")
 
                     # Compute dBFS for the isolated and reconstructed sources
-                    subset_results["isolated_" + label + "_dbfs"] += compute_dbfs(source_waveforms, SAMPLE_RATE, device=device).squeeze().tolist()
-                    subset_results["reconstructed_" + label + "_dbfs"] += compute_dbfs(recon_source_waveforms, SAMPLE_RATE, device=device).squeeze().tolist()
+                    subset_results["isolated_" + label + "_dbfs"] += compute_dbfs_spec(source_maggram, SAMPLE_RATE, train_config, device=device).squeeze().tolist()
+                    subset_results["reconstructed_" + label + "_dbfs"] += compute_dbfs_spec(recon_source_maggram, SAMPLE_RATE, train_config, device=device).squeeze().tolist()
 
                     # Compute SI-SDR with mixture as estimated source
                     input_sisdr = compute_sisdr(mixture_waveforms, source_waveforms)

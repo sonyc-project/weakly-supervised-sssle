@@ -277,3 +277,37 @@ def get_data_transforms(train_config):
         return torchvision.transforms.Compose(transform_list)
 
     return None
+
+
+def get_spec_params(train_config):
+    params = {}
+    for transform_config in train_config["input_transforms"]:
+        if transform_config["name"] not in ('Spectrogram', 'MelSpectrogram'):
+            continue
+        params = transform_config["parameters"]
+        break
+    spec_params = {
+        "pad": params.get("pad", 0),
+        "n_fft": params.get("n_fft", 400),
+        "power": params.get("power", 2.0),
+        "normalized": params.get("normalized", False),
+        "window_fn": get_torch_window_fn(params.get("window_fn", "hann_window")),
+        "window_scaling": params.get("window_scaling", False),
+        "wkwargs": params.get("wkwargs", {})
+    }
+    spec_params["win_length"] = params.get("win_length") or spec_params["n_fft"]
+    spec_params["hop_length"] = params.get("hop_length") or (spec_params["win_length"] // 2)
+    return spec_params
+
+
+def get_mel_params(train_config):
+    mel_config = None
+    for transform_config in train_config["input_transforms"]:
+        if transform_config["name"].startswith("Mel"):
+            mel_config = {
+                "n_mels": transform_config["n_mels"],
+                "f_min": transform_config.get("f_min", 0.0),
+                "f_max": transform_config.get("f_max", 8000.0)
+            }
+            break
+    return mel_config

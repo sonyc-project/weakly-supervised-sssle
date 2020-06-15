@@ -1,7 +1,8 @@
 # Adapted from https://github.com/sonyc-project/sonycnode/blob/79fa47652b37c47a7e289f183613ec02fdb9abbe/capture/weight_filts.py
 import numpy as np
 import torch
-from torchaudio.functional import complex_norm
+from torchaudio.functional import complex_norm, create_fb_matrix
+from data import get_spec_params, get_mel_params
 
 
 def get_freq_weighting(nfft, sr, weighting='a', device=None):
@@ -52,10 +53,39 @@ def compute_dbfs(audio, sr, weighting='a', device=None):
     sp = complex_norm(torch.rfft(audio * window, 1))
     sp[sp == 0] = 1e-17
     sp = torch.pow(sp, 2)
+    sp = sp.squeeze(dim=1)
 
     weighting = get_freq_weighting(audio_len, sr, weighting=weighting, device=device)[None, :]
     sp = weighting * sp
 
     mean_energy = torch.sum(sp, dim=-1) / ((1.0 / sr) * audio_len)
+    dbfs = 10 * torch.log10(mean_energy)
+    return dbfs
+
+
+def compute_dbfs_spec(spec, sr, train_config, weighting='a', device=None):
+    # Squeeze channel dim
+    spec = spec.squeeze(dim=1)
+    # Take mean of frequency bins across time
+    spec = spec.mean(dim=-1)
+    spec[spec == 0] = 1e-17
+    spec = torch.pow(spec, 2)
+
+    spec_params = get_spec_params(train_config)
+    n_fft = spec_params["n_fft"]
+    mel_config = get_mel_params(train_config)
+
+    weighting = get_freq_weighting(n_fft, sr, weighting=weighting, device=device)[None, :]
+    if mel_config:
+        fb = create_fb_matrix(n_freqs=n_fft // 2 + 1,
+                              f_min=mel_config["f_min"],
+                              f_max=mel_config["f_max"],
+                              n_mels=mel_config["n_mels"],
+                              sample_rate=sr)
+        weighting = torch.mm(weighting.unsqueeze(dim=0), fb)
+
+    spec = weighting * spec
+
+    mean_energy = torch.sum(spec, dim=-1) / ((1.0 / sr) * n_fft)
     dbfs = 10 * torch.log10(mean_energy)
     return dbfs
