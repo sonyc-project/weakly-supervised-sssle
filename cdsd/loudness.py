@@ -44,36 +44,41 @@ def get_freq_weighting(nfft, sr, weighting='a', device=None):
     return weighting_array.float()
 
 
-def compute_dbfs(audio, sr, weighting='a', device=None):
-    audio_len = audio.size()[-1]
-    window = torch.hann_window(audio_len)[None, :]
+def compute_dbfs(audio, sr, train_config, weighting='a', device=None):
+    n_fft = audio.size()[-1]
+    spec_params = get_spec_params(train_config)
+    window = spec_params["window_fn"](n_fft)[None, :]
     if device is not None:
         window = window.to(device)
     # FFT input buffer using appropriate FFT size for octave band analysis
-    sp = complex_norm(torch.rfft(audio * window, 1))
-    sp[sp == 0] = 1e-17
-    sp = torch.pow(sp, 2)
-    sp = sp.squeeze(dim=1)
+    spec = complex_norm(torch.rfft(audio * window, 1))
+    spec[spec == 0] = 1e-17
+    spec = torch.pow(spec, 2)
+    spec = spec.squeeze(dim=1)
 
-    weighting = get_freq_weighting(audio_len, sr, weighting=weighting, device=device)[None, :]
-    sp = weighting * sp
+    weighting = get_freq_weighting(n_fft, sr, weighting=weighting, device=device)[None, :]
+    spec = weighting * spec
 
-    mean_energy = torch.sum(sp, dim=-1) / ((1.0 / sr) * audio_len)
+    mean_energy = torch.sum(spec, dim=-1) / ((1.0 / sr) * n_fft)
     dbfs = 10 * torch.log10(mean_energy)
     return dbfs
 
 
 def compute_dbfs_spec(spec, sr, train_config, weighting='a', device=None):
+    spec_params = get_spec_params(train_config)
+    n_fft = spec_params["n_fft"]
+    mel_config = get_mel_params(train_config)
+
+    # Account for window scaling
+    if spec_params["window_scaling"]:
+        spec = spec * spec_params["window_fn"](n_fft).sum()
+
     # Squeeze channel dim
     spec = spec.squeeze(dim=1)
     # Take mean of frequency bins across time
     spec = spec.mean(dim=-1)
     spec[spec == 0] = 1e-17
     spec = torch.pow(spec, 2)
-
-    spec_params = get_spec_params(train_config)
-    n_fft = spec_params["n_fft"]
-    mel_config = get_mel_params(train_config)
 
     weighting = get_freq_weighting(n_fft, sr, weighting=weighting, device=device)[None, :]
     if mel_config:
