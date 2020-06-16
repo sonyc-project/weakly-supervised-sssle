@@ -186,7 +186,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 src_spec = batch[label + "_transformed"].to(device)
                 src_spec_diff = (src_spec - x_masked) * weight
                 if energy_masking:
-                    src_spec_diff *= energy_mask[:, None, None, :]
+                    src_spec_diff = src_spec_diff * energy_mask[:, None, None, :]
                 src_spec_diff_flat = src_spec_diff.view(curr_batch_size, -1)
                 src_loss = torch.norm(src_spec_diff_flat, p=1, dim=1) / norm_factor
                 src_loss = src_loss.mean()
@@ -195,7 +195,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 if train_loss is None:
                     train_loss = src_loss
                 else:
-                    train_loss += src_loss
+                    train_loss = train_loss + src_loss
 
             # Backprop
             train_loss.backward()
@@ -257,7 +257,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     src_spec = batch[label + "_transformed"].to(device)
                     src_spec_diff = (src_spec - x_masked) * weight
                     if energy_masking:
-                        src_spec_diff *= energy_mask[:, None, None, :]
+                        src_spec_diff = src_spec_diff * energy_mask[:, None, None, :]
                     src_spec_diff_flat = src_spec_diff.view(curr_batch_size, -1)
                     src_loss = torch.norm(src_spec_diff_flat, p=1, dim=1) / norm_factor
                     src_loss = src_loss.mean()
@@ -266,7 +266,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     if valid_loss is None:
                         valid_loss = src_loss
                     else:
-                        valid_loss += src_loss
+                        valid_loss = valid_loss + src_loss
 
                 # Accumulate loss for epoch
                 accum_valid_loss += valid_loss.item()

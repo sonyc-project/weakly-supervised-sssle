@@ -225,7 +225,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 cls_bce = F.binary_cross_entropy(mix_cls_output,
                                                         cls_target_labels,
                                                         reduction='none')
-                cls_bce *= class_weights
+                cls_bce = cls_bce * class_weights
                 train_cls_loss = cls_bce.mean()
             else:
                 cls_bce = None
@@ -247,12 +247,11 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     cls_bce = F.binary_cross_entropy(src_cls_output,
                                                      target,
                                                      reduction='none')
-                    cls_bce *= class_weights
-                    train_cls_loss += cls_bce.mean()
+                    cls_bce = cls_bce * class_weights
+                    train_cls_loss = train_cls_loss + cls_bce.mean()
                 else:
                     cls_bce = None
-                    train_cls_loss += F.binary_cross_entropy(src_cls_output,
-                                                             target)
+                    train_cls_loss = train_cls_loss + F.binary_cross_entropy(src_cls_output, target)
 
             # Accumulate loss
             train_total_loss = train_mix_loss * mixture_loss_weight + train_cls_loss * cls_loss_weight
@@ -323,7 +322,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     cls_bce = F.binary_cross_entropy(mix_cls_output,
                                                      cls_target_labels,
                                                      reduction='none')
-                    cls_bce *= class_weights
+                    cls_bce = cls_bce * class_weights
                     valid_cls_loss = cls_bce.mean()
                 else:
                     cls_bce = None
@@ -345,12 +344,11 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                         cls_bce = F.binary_cross_entropy(src_cls_output,
                                                          target,
                                                          reduction='none')
-                        cls_bce *= class_weights
-                        valid_cls_loss += cls_bce.mean()
+                        cls_bce = cls_bce * class_weights
+                        valid_cls_loss = valid_cls_loss + cls_bce.mean()
                     else:
                         cls_bce = None
-                        valid_cls_loss += F.binary_cross_entropy(src_cls_output,
-                                                                 target)
+                        valid_cls_loss = valid_cls_loss + F.binary_cross_entropy(src_cls_output, target)
 
                 # Accumulate loss
                 valid_total_loss = valid_mix_loss * mixture_loss_weight + valid_cls_loss * cls_loss_weight

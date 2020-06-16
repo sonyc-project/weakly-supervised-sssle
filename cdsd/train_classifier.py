@@ -164,7 +164,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
             # Compute classification_loss
             if class_prior_weighting and label_mode == 'frame':
                 cls_bce = F.binary_cross_entropy(output, labels, reduction='none')
-                cls_bce *= class_weights
+                cls_bce = cls_bce * class_weights
                 train_loss = cls_bce.mean()
             else:
                 cls_bce = None
@@ -208,7 +208,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
                 # Compute classification_loss
                 if class_prior_weighting and label_mode == 'frame':
                     cls_bce = F.binary_cross_entropy(output, labels, reduction='none')
-                    cls_bce *= class_weights
+                    cls_bce = cls_bce * class_weights
                     valid_loss = cls_bce.mean()
                 else:
                     cls_bce = None
