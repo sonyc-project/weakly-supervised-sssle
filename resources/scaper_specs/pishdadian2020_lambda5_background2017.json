@@ -1,6 +1,6 @@
 {
     "spec_label": "pishdadidan2020_lambda5",
-    "ref_db": 0,
+    "ref_db": -50,
     "duration": 4.0,
     "sample_rate": 16000,
     "protected_labels": [
@@ -63,8 +63,8 @@
     },
     "snr": {
         "dist": "uniform",
-        "min": -30,
-        "max": -25
+        "min": 6,
+        "max": 30
     },
     "pitch_shift": null,
     "time_stretch": null
