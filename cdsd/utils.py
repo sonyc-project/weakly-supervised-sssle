@@ -1,5 +1,5 @@
 import math
-from torch import hann_window, sqrt
+from torch import hann_window, sqrt, ones
 from torch.optim import Adam, SGD
 
 
@@ -37,6 +37,8 @@ def get_torch_window_fn(name):
         return hann_window
     elif name == "sqrt_hann_window":
         return sqrt_hann_window
+    elif name == 'rectangular':
+        return ones
     else:
         raise ValueError('Invalid window type: {}'.format(name))
 

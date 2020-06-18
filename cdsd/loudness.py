@@ -59,7 +59,13 @@ def compute_dbfs(audio, sr, train_config, weighting='a', device=None):
     weighting = get_freq_weighting(n_fft, sr, weighting=weighting, device=device)[None, :]
     spec = weighting * spec
 
-    mean_energy = torch.sum(spec, dim=-1) / ((1.0 / sr) * n_fft)
+    # Account for DC/Nyquist
+    spec[..., 0] *= 0.5
+    if n_fft % 2 == 0:
+        spec[..., -1] *= 0.5
+
+    scale = 2.0 / (n_fft ** 2)
+    mean_energy = scale * spec.sum(dim=-1)
     dbfs = 10 * torch.log10(mean_energy)
     return dbfs
 
@@ -75,10 +81,10 @@ def compute_dbfs_spec(spec, sr, train_config, weighting='a', device=None):
 
     # Squeeze channel dim
     spec = spec.squeeze(dim=1)
-    # Take mean of frequency bins across time
-    spec = spec.mean(dim=-1)
     spec[spec == 0] = 1e-17
     spec = torch.pow(spec, 2)
+    # Take mean of frequency bins across time
+    spec = spec.mean(dim=-1)
 
     weighting = get_freq_weighting(n_fft, sr, weighting=weighting, device=device)[None, :]
     if mel_config:
@@ -88,9 +94,14 @@ def compute_dbfs_spec(spec, sr, train_config, weighting='a', device=None):
                               n_mels=mel_config["n_mels"],
                               sample_rate=sr)
         weighting = torch.mm(weighting.unsqueeze(dim=0), fb)
-
     spec = weighting * spec
 
-    mean_energy = torch.sum(spec, dim=-1) / ((1.0 / sr) * n_fft)
+    # Account for DC/Nyquist
+    spec[..., 0] *= 0.5
+    if n_fft % 2 == 0:
+        spec[..., -1] *= 0.5
+
+    scale = 2.0 / (n_fft ** 2)
+    mean_energy = scale * spec.sum(dim=-1)
     dbfs = 10 * torch.log10(mean_energy)
     return dbfs
