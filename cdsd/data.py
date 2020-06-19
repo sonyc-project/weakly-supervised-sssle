@@ -229,7 +229,10 @@ class CDSDDataset(Dataset):
                 if sr != SAMPLE_RATE:
                     raise ValueError('Expected sample rate of {} Hz, but got {} Hz ({})'.format(SAMPLE_RATE, sr, audio_path))
 
-                event_waveforms[label + '_waveform'] += event_waveform
+                if label + '_waveform' not in event_waveforms:
+                    event_waveforms[label + '_waveform'] = event_waveform
+                else:
+                    event_waveforms[label + '_waveform'] += event_waveform
 
             sample.update(event_waveforms)
 
