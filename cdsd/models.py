@@ -287,9 +287,14 @@ def construct_separator(train_config, dataset, weights_path=None, require_init=F
     # Set up input transformations for separator
     separator_input_transform = get_data_transforms(separator_config)
 
+    num_classes = dataset.num_labels
+    separate_background = train_config["training"].get("separate_background", False)
+    if separate_background:
+        num_classes += 1
+
     # Construct separator
     if separator_config["model"] == "BLSTMSpectrogramSeparator":
-        separator = BLSTMSpectrogramSeparator(n_classes=dataset.num_labels,
+        separator = BLSTMSpectrogramSeparator(n_classes=num_classes,
                                               transform=separator_input_transform,
                                               **separator_config["parameters"])
     else:

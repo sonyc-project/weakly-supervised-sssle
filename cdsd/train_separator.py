@@ -119,6 +119,13 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
     class_prior_weighting = train_config["training"].get("class_prior_weighting", False)
     patience = train_config["training"].get("early_stopping_patience", 5)
     early_stopping_terminate = train_config["training"].get("early_stopping_terminate", False)
+    separate_background = train_config["training"].get("separate_background", False)
+    residual_background = train_config["training"].get("residual_background", False)
+    classify_background = train_config["training"].get("classify_background", False)
+
+    assert not (separate_background and residual_background)
+    if classify_background and not separate_background:
+        raise ValueError("Must separate background to classify it.")
 
     # JTC: Should we still provide params with requires_grad=False here?
     all_params = chain(separator.parameters(), classifier.parameters())
@@ -214,8 +221,14 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
             # Forward pass through separator
             masks = separator(x)
 
+            mixture_labels = cls_target_labels_raw
+            if separate_background:
+                # Add "background labels" if we're also explicitly separating
+                # the background
+                mixture_labels = torch.cat((mixture_labels, torch.ones(cls_target_labels_raw.shape[:-1] + (1,))), dim=-1)
+
             # Compute mixture loss for separator
-            train_mix_loss = mixture_loss_fn(x, cls_target_labels_raw, masks, energy_mask)
+            train_mix_loss = mixture_loss_fn(x, mixture_labels, masks, energy_mask)
 
             # Pass mixture through classifier
             mix_cls_output = classifier(x)
@@ -253,6 +266,29 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     cls_bce = None
                     train_cls_loss = train_cls_loss + F.binary_cross_entropy(src_cls_output, target)
 
+            if classify_background:
+                if separate_background:
+                    mask = masks[..., -1]
+                elif residual_background:
+                    mask = torch.relu(-masks.sum(dim=-1) + 1.0)
+                else:
+                    raise ValueError('Classifying background with no method for obtaining background.')
+                x_masked = (x * mask).to(device)
+                src_cls_output = classifier(x_masked)
+
+                # Background should be all zeros for all classes
+                target = torch.zeros_like(cls_target_labels).to(device)
+                # Accumulate classification loss for each source type
+                if class_prior_weighting and label_mode == 'frame':
+                    cls_bce = F.binary_cross_entropy(src_cls_output,
+                                                     target,
+                                                     reduction='none')
+                    cls_bce = cls_bce * class_weights
+                    train_cls_loss = train_cls_loss + cls_bce.mean()
+                else:
+                    cls_bce = None
+                    train_cls_loss = train_cls_loss + F.binary_cross_entropy(src_cls_output, target)
+
             # Accumulate loss
             train_total_loss = train_mix_loss * mixture_loss_weight + train_cls_loss * cls_loss_weight
 
@@ -271,7 +307,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 train_idxs_save = batch['index'][:num_debug_examples].cpu().numpy()
 
             # Cleanup
-            del x, cls_bce, cls_target_labels, \
+            del x, cls_bce, cls_target_labels, mixture_labels, \
                 cls_target_labels_raw, masks, energy_mask, batch, mask, \
                 x_masked, mix_cls_output, src_cls_output, train_cls_loss, \
                 train_mix_loss, train_total_loss, class_weights
@@ -311,8 +347,14 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 # Forward pass through separator
                 masks = separator(x)
 
+                mixture_labels = cls_target_labels_raw
+                if separate_background:
+                    # Add "background labels" if we're also explicitly separating
+                    # the background
+                    mixture_labels = torch.cat((mixture_labels, torch.ones(cls_target_labels_raw.shape[:-1] + (1,))), dim=-1)
+
                 # Compute mixture loss for separator
-                valid_mix_loss = mixture_loss_fn(x, cls_target_labels_raw, masks, energy_mask)
+                valid_mix_loss = mixture_loss_fn(x, mixture_labels, masks, energy_mask)
 
                 # Pass mixture through classifier
                 mix_cls_output = classifier(x)
@@ -350,6 +392,29 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                         cls_bce = None
                         valid_cls_loss = valid_cls_loss + F.binary_cross_entropy(src_cls_output, target)
 
+                if classify_background:
+                    if separate_background:
+                        mask = masks[..., -1]
+                    elif residual_background:
+                        mask = torch.relu(-masks.sum(dim=-1) + 1.0)
+                    else:
+                        raise ValueError('Classifying background with no method for obtaining background.')
+                    x_masked = (x * mask).to(device)
+                    src_cls_output = classifier(x_masked)
+
+                    # Background should be all zeros for all classes
+                    target = torch.zeros_like(cls_target_labels).to(device)
+                    # Accumulate classification loss for each source type
+                    if class_prior_weighting and label_mode == 'frame':
+                        cls_bce = F.binary_cross_entropy(src_cls_output,
+                                                         target,
+                                                         reduction='none')
+                        cls_bce = cls_bce * class_weights
+                        valid_cls_loss = valid_cls_loss + cls_bce.mean()
+                    else:
+                        cls_bce = None
+                        valid_cls_loss = valid_cls_loss + F.binary_cross_entropy(src_cls_output, target)
+
                 # Accumulate loss
                 valid_total_loss = valid_mix_loss * mixture_loss_weight + valid_cls_loss * cls_loss_weight
 
@@ -364,7 +429,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     valid_idxs_save = batch['index'][:num_debug_examples].cpu().numpy()
 
                 # Help garbage collection
-                del x, cls_bce, cls_target_labels, energy_mask, masks,\
+                del x, cls_bce, cls_target_labels, energy_mask, masks, mixture_labels, \
                     batch, mask, x_masked, mix_cls_output, src_cls_output, \
                     valid_cls_loss, valid_mix_loss, valid_total_loss, class_weights
                 torch.cuda.empty_cache()
