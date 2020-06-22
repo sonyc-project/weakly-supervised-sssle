@@ -58,7 +58,8 @@ def mixture_loss(x, labels, masks, energy_mask, energy_masking=None):
     return mix_loss
 
 
-def mixture_margin_loss(x, labels, masks, margin, energy_mask, energy_masking=None):
+def mixture_margin_loss(x, labels, masks, energy_mask, energy_masking=None, margin=None):
+    assert margin is not None
     mix_present_spec_diff_flat, absent_spec_flat = get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking)
     norm_factor = get_normalization_factor(x, energy_mask, energy_masking=energy_masking)
 
@@ -68,7 +69,8 @@ def mixture_margin_loss(x, labels, masks, margin, energy_mask, energy_masking=No
     return mix_loss
 
 
-def mixture_margin_asymmetric_loss(x, labels, masks, margin, energy_mask, energy_masking=None):
+def mixture_margin_asymmetric_loss(x, labels, masks, energy_mask, energy_masking=None, margin=None):
+    assert margin is not None
     mix_present_spec_diff_flat, absent_spec_flat = get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking)
     norm_factor = get_normalization_factor(x, energy_mask, energy_masking=energy_masking)
 

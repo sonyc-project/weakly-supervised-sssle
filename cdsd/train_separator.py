@@ -228,7 +228,10 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 mixture_labels = torch.cat((mixture_labels, torch.ones(cls_target_labels_raw.shape[:-1] + (1,))), dim=-1)
 
             # Compute mixture loss for separator
-            train_mix_loss = mixture_loss_fn(x, mixture_labels, masks, energy_mask)
+            train_mix_loss = mixture_loss_fn(x,
+                                             labels=mixture_labels,
+                                             masks=masks,
+                                             energy_mask=energy_mask)
 
             # Pass mixture through classifier
             mix_cls_output = classifier(x)
@@ -354,7 +357,10 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     mixture_labels = torch.cat((mixture_labels, torch.ones(cls_target_labels_raw.shape[:-1] + (1,))), dim=-1)
 
                 # Compute mixture loss for separator
-                valid_mix_loss = mixture_loss_fn(x, mixture_labels, masks, energy_mask)
+                valid_mix_loss = mixture_loss_fn(x,
+                                                 labels=mixture_labels,
+                                                 masks=masks,
+                                                 energy_mask=energy_mask)
 
                 # Pass mixture through classifier
                 mix_cls_output = classifier(x)
