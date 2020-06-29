@@ -101,20 +101,6 @@ def run(fg_folder, bg_folder, scaper_spec_path, n_soundscapes, out_folder, exp_l
     with open(scaper_spec_path, 'r') as f:
         scaper_spec = json.load(f)
 
-    # save generation params
-    gen_params = {
-        'fg_folder': fg_folder,
-        'bg_folder': bg_folder,
-        'scaper_spec_path': scaper_spec_path,
-        'n_soundscapes': n_soundscapes,
-        'out_folder': out_folder,
-        'exp_label': exp_label,
-        'random_state': random_state
-    }
-    gen_params_path = os.path.join(out_folder, "soundscape_gen_params_{}_{}.json".format(exp_label, scaper_spec['spec_label']))
-    with open(gen_params_path, 'w') as f:
-        json.dump(gen_params, f)
-
     # create a scaper that will be used below
     sc = scaper.Scaper(scaper_spec['duration'],
                        fg_folder,
@@ -138,7 +124,7 @@ def run(fg_folder, bg_folder, scaper_spec_path, n_soundscapes, out_folder, exp_l
         'bg_labels': sc.bg_labels
     }
 
-    gen_params_path = os.path.join(out_folder, "soundscape_gen_params_{}_{}.json".format(exp_label, scaper_spec['spec_label']))
+    gen_params_path = os.path.join(out_folder, "soundscape_gen_params_{}.json".format(exp_label))
     with open(gen_params_path, 'w') as f:
         json.dump(gen_params, f)
 
@@ -194,8 +180,8 @@ def run(fg_folder, bg_folder, scaper_spec_path, n_soundscapes, out_folder, exp_l
                          time_stretch=time_stretch)
 
         # generate
-        audiofile = os.path.join(out_folder, "soundscape_{}_{}_{:d}.wav".format(exp_label, scaper_spec['spec_label'], n))
-        jamsfile = os.path.join(out_folder, "soundscape_{}_{}_{:d}.jams".format(exp_label, scaper_spec['spec_label'], n))
+        audiofile = os.path.join(out_folder, "soundscape_{}_{:d}.wav".format(exp_label, n))
+        jamsfile = os.path.join(out_folder, "soundscape_{}_{:d}.jams".format(exp_label, n))
 
         # TODO: If we want we can parameterize the other arguments of sc.generate at some point...
         sc.generate(audiofile, jamsfile,
