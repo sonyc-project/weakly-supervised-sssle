@@ -124,7 +124,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
     classify_background = train_config["training"].get("classify_background", False)
 
     assert not (separate_background and residual_background)
-    if classify_background and not separate_background:
+    if classify_background and not (separate_background or residual_background):
         raise ValueError("Must separate background to classify it.")
 
     # JTC: Should we still provide params with requires_grad=False here?
