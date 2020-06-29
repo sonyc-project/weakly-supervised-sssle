@@ -1,11 +1,12 @@
-import tempfile
-import sox
-import jams
 import os
-import shutil
 import random
-from scaper.audio import get_integrated_lufs, match_sample_length
+import shutil
+import sys
+import tempfile
+import jams
+import sox
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
+from scaper.audio import get_integrated_lufs, match_sample_length
 
 
 def add_background(fg_dir, bg_dir, out_dir, ref_db, exp_label, random_state):
@@ -22,7 +23,13 @@ def add_background(fg_dir, bg_dir, out_dir, ref_db, exp_label, random_state):
         fg_events_dir = os.path.splitext(fg_audio_path)[0] + '_events'
 
         # Get experiment label so we can replace it if necessary
-        orig_exp_label = fg_fname[fg_fname.index('_')+1:fg_fname.rindex('_')]
+        l_idx = fg_fname.index('_')
+        r_idx = fg_fname.rindex('_')
+        if l_idx == r_idx:
+            l_idx = 0
+        else:
+            l_idx += 1
+        orig_exp_label = fg_fname[l_idx:r_idx]
         if not exp_label:
             exp_label = orig_exp_label
         out_audio_path = os.path.join(out_dir, os.path.basename(fg_audio_path).replace(orig_exp_label, exp_label))
