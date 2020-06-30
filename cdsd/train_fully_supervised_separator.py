@@ -1,6 +1,7 @@
 import argparse
 import os
 import json
+import random
 import sys
 import shutil
 import torch
@@ -47,11 +48,21 @@ def parse_arguments(args):
                         type=int, default=5,
                         help='Number of epochs in between saving debug examples')
 
+    parser.add_argument('--random-state',
+                        type=int, default=12345678,
+                        help='Random state for reproducability')
+
     return parser.parse_args(args)
 
 
 def train(root_data_dir, train_config, output_dir, num_data_workers=1,
-          checkpoint_interval=10, num_debug_examples=5, save_debug_interval=5):
+          checkpoint_interval=10, num_debug_examples=5, save_debug_interval=5,
+          random_state=12345678):
+    # Set random seed
+    torch.manual_seed(random_state)
+    random.seed(random_state)
+    np.random.seed(random_state)
+
     # Set up device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -123,6 +134,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
         save_config["separator"]["best_path"] = separator_best_ckpt_path
         save_config["separator"]["latest_path"] = separator_latest_ckpt_path
         save_config["separator"]["earlystopping_path"] = separator_earlystopping_ckpt_path
+        save_config["random_state"] = random_state
         json.dump(save_config, f)
 
     epoch = 0
@@ -364,4 +376,5 @@ if __name__ == "__main__":
           num_data_workers=args.num_data_workers,
           checkpoint_interval=args.checkpoint_interval,
           num_debug_examples=args.num_debug_examples,
-          save_debug_interval=args.save_debug_interval)
+          save_debug_interval=args.save_debug_interval,
+          random_state=args.random_state)
