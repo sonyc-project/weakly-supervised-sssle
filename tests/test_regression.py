@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import torch
 import sys
-sys.path.append(os.path.join(__file__, '..', 'cdsd'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'cdsd'))
 
 from train_classifier import train as train_cls
 from train_separator import train as train_sep
@@ -103,7 +103,7 @@ def test_regression():
 
     try:
         with open(CLASSIFIER_CLIP_CONFIG_PATH, 'r') as f:
-            cls_clip_config = json.load(f, sort_keys=True)
+            cls_clip_config = json.load(f)
         cls_clip_output_dir = os.path.join(output_dir, "crnn_classifier_clip")
         train_cls(root_data_dir=AUDIO_DIR,
                   train_config=cls_clip_config,
