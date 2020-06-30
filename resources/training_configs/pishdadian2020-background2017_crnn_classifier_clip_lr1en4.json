@@ -28,9 +28,12 @@
     },
 
     "training": {
-        "batch_size": 32,
+        "batch_size": 8,
         "num_epochs": 50,
         "label_mode": "clip",
+        "early_stopping_patience": 5,    
+        "early_stopping_terminate": true,
+        "class_prior_weighting": true,   
         "optimizer": {
             "name": "Adam",
             "parameters": {

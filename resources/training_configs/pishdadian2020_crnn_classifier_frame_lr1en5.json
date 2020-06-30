@@ -28,7 +28,7 @@
     },
 
     "training": {
-        "batch_size": 32,
+        "batch_size": 8,
         "num_epochs": 50,
         "label_mode": "frame",
         "class_prior_weighting": true,
