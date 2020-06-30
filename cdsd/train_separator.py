@@ -166,6 +166,12 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
         save_config["classifier"]["earlystopping_path"] = classifier_earlystopping_ckpt_path
         json.dump(save_config, f)
 
+    epoch = 0
+    train_masks_save = None
+    train_idxs_save = None
+    valid_masks_save = None
+    valid_idxs_save = None
+
     early_stopping_wait = 0
     early_stopping_flag = False
     num_epochs = train_config["training"]["num_epochs"]
@@ -500,6 +506,14 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
             if early_stopping_terminate:
                 break
 
+    # Save debug outputs for last epoch if they weren't already
+    if epoch % save_debug_interval != 0:
+        mask_debug_path = os.path.join(output_dir, "mask_debug_{}.npz".format(epoch))
+        np.savez_compressed(mask_debug_path,
+                            train_masks=train_masks_save,
+                            train_idxs=train_idxs_save,
+                            valid_masks=valid_masks_save,
+                            valid_idxs=valid_idxs_save)
 
     # If early stopping was never hit, use best overall model
     if not early_stopping_flag:
