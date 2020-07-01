@@ -5,6 +5,7 @@ import sys
 import librosa
 import jams
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
+from scaper.audio import get_integrated_lufs
 
 
 SAMPLE_RATE = 16000
@@ -70,7 +71,11 @@ def run(data_dir, out_dir):
                 start_ts = event["start_sample"] / SAMPLE_RATE
                 end_ts = event["end_sample"] / SAMPLE_RATE
                 src_fname = os.path.basename(event["filepath"])
-                gain = event["gain"]
+
+                # Get LUFS, which will serve as "SNR" with 0 ref dB
+                label_dir = os.path.join(src_subset_dir, "s_" + label)
+                src_source_path = os.path.join(label_dir, src_audio_fname)
+                lufs = get_integrated_lufs(src_source_path)
 
                 present_labels.add(label)
 
@@ -83,7 +88,7 @@ def run(data_dir, out_dir):
                                "source_time": 0.0,
                                "event_time": start_ts,
                                "event_duration": end_ts - start_ts,
-                               "snr": gain,
+                               "snr": lufs,
                                "role": "foreground",
                                "pitch_shift": None,
                                "time_stretch": None
