@@ -2,6 +2,8 @@ import argparse
 import json
 import os
 import sys
+import warnings
+warnings.filterwarnings("ignore")
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -34,10 +36,14 @@ def parse_arguments(args):
                         type=int, default=1,
                         help='Number of workers used for data loading.')
 
+    parser.add_argument('--verbose',
+                        action="store_true",
+                        help='If selected, print verbose output.')
+
     return parser.parse_args(args)
 
 
-def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, checkpoint='best'):
+def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, checkpoint='best', verbose=False):
     # Set up device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -103,7 +109,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, c
 
             subset_results_path = os.path.join(output_dir, "classification_results_{}_{}.csv".format(checkpoint, subset))
 
-            for batch in tqdm(dataloader, total=num_batches):
+            for batch in tqdm(dataloader, total=num_batches, disable=(not verbose)):
                 x = batch["audio_data"].to(device)
                 if label_mode == "clip":
                     labels = batch["clip_labels"].to(device)
@@ -138,4 +144,5 @@ if __name__ == "__main__":
              train_config=train_config,
              output_dir=args.output_dir,
              num_data_workers=args.num_data_workers,
-             checkpoint=args.checkpoint)
+             checkpoint=args.checkpoint,
+             verbose=args.verbose)

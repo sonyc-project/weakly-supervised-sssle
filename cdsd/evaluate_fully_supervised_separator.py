@@ -2,6 +2,8 @@ import argparse
 import json
 import os
 import sys
+import warnings
+warnings.filterwarnings("ignore")
 import torch
 import torchaudio
 import torch.nn as nn
@@ -48,10 +50,14 @@ def parse_arguments(args):
                         type=int, default=1,
                         help='Number of workers used for data loading.')
 
+    parser.add_argument('--verbose',
+                        action="store_true",
+                        help='If selected, print verbose output.')
+
     return parser.parse_args(args)
 
 
-def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, save_audio=False, save_masks=False, checkpoint='best'):
+def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, save_audio=False, save_masks=False, checkpoint='best', verbose=False):
     # Set up device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -119,7 +125,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
 
             subset_results_path = os.path.join(output_dir, "fully_supervised_separation_results_{}_{}.csv".format(checkpoint, subset))
 
-            for batch_idx, batch in tqdm(enumerate(dataloader), total=num_batches):
+            for batch_idx, batch in tqdm(enumerate(dataloader), total=num_batches, disable=(not verbose)):
                 x = batch["audio_data"].to(device)
                 clip_labels = batch["clip_labels"].to(device)
                 frame_labels = batch["frame_labels"].to(device)
@@ -255,4 +261,5 @@ if __name__ == "__main__":
              num_data_workers=args.num_data_workers,
              save_audio=args.save_audio,
              save_masks=args.save_masks,
-             checkpoint=args.checkpoint)
+             checkpoint=args.checkpoint,
+             verbose=args.verbose)
