@@ -4,6 +4,8 @@ import json
 import random
 import sys
 import shutil
+import warnings
+warnings.filterwarnings("ignore")
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -44,10 +46,15 @@ def parse_arguments(args):
                         type=int, default=12345678,
                         help='Random state for reproducability')
 
+    parser.add_argument('--verbose',
+                        action="store_true",
+                        help='If selected, print verbose output.')
+
     return parser.parse_args(args)
 
 
-def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoint_interval=10, random_state=12345678):
+def train(root_data_dir, train_config, output_dir, num_data_workers=1,
+          checkpoint_interval=10, random_state=12345678, verbose=False):
     # Set random seed
     torch.manual_seed(random_state)
     random.seed(random_state)
@@ -150,7 +157,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         print(" **** Training ****")
         # Set models to train mode
         classifier.train()
-        for batch in tqdm(train_dataloader, total=num_train_batches):
+        for batch in tqdm(train_dataloader, total=num_train_batches, disable=(not verbose)):
             x = batch["audio_data"].to(device)
             if label_mode == "clip":
                 labels = batch["clip_labels"].to(device)
@@ -197,7 +204,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1, checkpoin
         # Set models to eval mode
         classifier.eval()
         with torch.no_grad():
-            for batch in tqdm(valid_dataloader, total=num_valid_batches):
+            for batch in tqdm(valid_dataloader, total=num_valid_batches, disable=(not verbose)):
                 x = batch["audio_data"].to(device)
                 if label_mode == "clip":
                     labels = batch["clip_labels"].to(device)
@@ -289,4 +296,5 @@ if __name__ == "__main__":
           output_dir=args.output_dir,
           num_data_workers=args.num_data_workers,
           checkpoint_interval=args.checkpoint_interval,
-          random_state=args.random_state)
+          random_state=args.random_state,
+          verbose=args.verbose)

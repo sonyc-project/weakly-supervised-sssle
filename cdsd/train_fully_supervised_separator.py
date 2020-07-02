@@ -4,6 +4,8 @@ import json
 import random
 import sys
 import shutil
+import warnings
+warnings.filterwarnings("ignore")
 import torch
 import torch.nn as nn
 import numpy as np
@@ -52,12 +54,16 @@ def parse_arguments(args):
                         type=int, default=12345678,
                         help='Random state for reproducability')
 
+    parser.add_argument('--verbose',
+                        action="store_true",
+                        help='If selected, print verbose output.')
+
     return parser.parse_args(args)
 
 
 def train(root_data_dir, train_config, output_dir, num_data_workers=1,
           checkpoint_interval=10, num_debug_examples=5, save_debug_interval=5,
-          random_state=12345678):
+          random_state=12345678, verbose=False):
     # Set random seed
     torch.manual_seed(random_state)
     random.seed(random_state)
@@ -160,7 +166,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
         # Set models to train mode
         separator.train()
         torch.cuda.empty_cache()
-        for batch_idx, batch in enumerate(tqdm(train_dataloader, total=num_train_batches)):
+        for batch_idx, batch in enumerate(tqdm(train_dataloader, total=num_train_batches, disable=(not verbose))):
             x = batch["audio_data"].to(device)
             frame_labels = batch["frame_labels"].to(device)
             energy_mask = batch["energy_mask"].to(device)
@@ -235,7 +241,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
         # Evaluate on validation set
         print(" **** Validation ****")
         with torch.no_grad():
-            for batch_idx, batch in enumerate(tqdm(valid_dataloader, total=num_valid_batches)):
+            for batch_idx, batch in enumerate(tqdm(valid_dataloader, total=num_valid_batches, disable=(not verbose))):
                 x = batch["audio_data"].to(device)
                 frame_labels = batch["frame_labels"].to(device)
                 energy_mask = batch["energy_mask"].to(device)
@@ -377,4 +383,5 @@ if __name__ == "__main__":
           checkpoint_interval=args.checkpoint_interval,
           num_debug_examples=args.num_debug_examples,
           save_debug_interval=args.save_debug_interval,
-          random_state=args.random_state)
+          random_state=args.random_state,
+          verbose=args.verbose)
