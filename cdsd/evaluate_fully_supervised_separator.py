@@ -16,7 +16,7 @@ from models import construct_separator, construct_classifier
 from torchaudio.functional import magphase
 from transforms import istft, spectrogram
 from loudness import compute_dbfs_spec
-from evaluate_separator import compute_sisdr
+from evaluate_separator import compute_source_separation_metrics, get_references
 
 
 def parse_arguments(args):
@@ -110,15 +110,20 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
 
             # Initialize results lists
             subset_results = {"filenames": list(dataset.files)} # Assuming that dataloader preserves order
-            subset_results.update({label + "_input_sisdr": [] for label in dataset.labels})
-            subset_results.update({label + "_sisdr_improvement": [] for label in dataset.labels})
+            source_sep_metric_names = ["sisdr", "sisir", "sisar", "sdr", "sir", "sar", "sdsdr"]
+            for metric_name in source_sep_metric_names:
+                subset_results.update({label + "_input_{}".format(metric_name): []
+                                       for label in dataset.labels})
+                subset_results.update({label + "_recon_{}".format(metric_name): []
+                                       for label in dataset.labels})
+                subset_results.update({label + "_input_lpf{}".format(metric_name): []
+                                       for label in dataset.labels})
+                subset_results.update({label + "_recon_lpf{}".format(metric_name): []
+                                       for label in dataset.labels})
 
             subset_results.update({"mixture_dbfs": []})
             subset_results.update({"isolated_" + label + "_dbfs": [] for label in dataset.labels})
             subset_results.update({"reconstructed_" + label + "_dbfs": [] for label in dataset.labels})
-
-            subset_results.update({label + "_input_sisdr": [] for label in dataset.labels})
-            subset_results.update({label + "_sisdr_improvement": [] for label in dataset.labels})
 
             subset_results.update({label + "_presence_gt": [] for label in dataset.labels})
             subset_results.update({label + "_presence_frame_gt": [] for label in dataset.labels})
@@ -194,14 +199,22 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                     subset_results["isolated_" + label + "_dbfs"] += compute_dbfs_spec(source_maggram, SAMPLE_RATE, train_config, device=device).squeeze().tolist()
                     subset_results["reconstructed_" + label + "_dbfs"] += compute_dbfs_spec(recon_source_maggram, SAMPLE_RATE, train_config, device=device).squeeze().tolist()
 
-                    # Compute SI-SDR with mixture as estimated source
-                    input_sisdr = compute_sisdr(mixture_waveforms, source_waveforms)
-                    # Compute SI-SDR improvement using reconstructed sources
-                    sisdr_imp = compute_sisdr(recon_source_waveforms, source_waveforms) - input_sisdr
+                    reference_waveforms = get_references(batch, label)
+                    # Compute source separation metrics with mixture as estimated source
+                    input_ss_metrics = compute_source_separation_metrics(mixture_waveforms,
+                                                                         source_waveforms,
+                                                                         reference_waveforms)
+                    # Compute source separation metrics with reconstructed sources
+                    recon_ss_metrics = compute_source_separation_metrics(recon_source_waveforms,
+                                                                         source_waveforms,
+                                                                         reference_waveforms)
 
                     # Save source separation metrics
-                    subset_results[label + "_input_sisdr"] += input_sisdr.tolist()
-                    subset_results[label + "_sisdr_improvement"] += sisdr_imp.tolist()
+                    for metric_name in source_sep_metric_names:
+                        subset_results["{}_input_{}".format(label, metric_name)] += input_ss_metrics[metric_name].tolist()
+                        subset_results["{}_recon_{}".format(label, metric_name)] += recon_ss_metrics[metric_name].tolist()
+                        subset_results["{}_input_lpf{}".format(label, metric_name)] += input_ss_metrics["lpf" + metric_name].tolist()
+                        subset_results["{}_recon_lpf{}".format(label, metric_name)] += recon_ss_metrics["lpf" + metric_name].tolist()
 
                     # Save ground truth labels and mixture classification results (since we're already iterating through labels)
                     subset_results[label + "_presence_gt"] += clip_labels[:, label_idx].tolist()
@@ -236,8 +249,8 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                 del x, clip_labels, frame_labels, mixture_waveforms, mixture_maggram, \
                     mixture_phasegram, cos_phasegram, sin_phasegram, \
                     source_waveforms, source_maggram, recon_source_maggram, \
-                    recon_source_stft, recon_source_waveforms, input_sisdr, \
-                    sisdr_imp, source_ideal_ratio_mask, batch
+                    recon_source_stft, recon_source_waveforms, input_ss_metrics, \
+                    recon_ss_metrics, source_ideal_ratio_mask, batch
                 torch.cuda.empty_cache()
 
             # Save results as CSV

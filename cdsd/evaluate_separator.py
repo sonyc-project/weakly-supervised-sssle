@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from data import get_data_transforms, CDSDDataset, SAMPLE_RATE, get_spec_params
 from models import construct_separator, construct_classifier
-from torchaudio.functional import magphase
+from torchaudio.functional import magphase, lowpass_biquad
 from transforms import istft, spectrogram
 from loudness import compute_dbfs_spec
 
@@ -29,17 +29,94 @@ def rowdot(s1, s2):
     return torch.sum(s1 * s2, dim=-1, keepdim=True)
 
 
-def compute_sisdr(estimated, original):
-    # Adapted from https://github.com/wangkenpu/Conv-TasNet-PyTorch/blob/master/utils/evaluate/si_sdr_torch.py
-    if estimated.dim() == 3:
-        estimated = torch.squeeze(estimated)
-    if original.dim() == 3:
-        original = torch.squeeze(original)
+def get_references(batch, label_list):
+    refs = []
+    for label in label_list:
+        # TODO: Double check that it is okay that matrix is not full rank.
+        # Don't think it should matter
+        label_waveform = torch.squeeze(batch["{}_waveform".format(label)], dim=1)[..., None]
+        refs.append(label_waveform)
 
-    signal = rowdot(estimated, original) * original / (sqnorm(original) + EPS)
-    dist = estimated - signal
-    sdr = 10 * torch.log10(sqnorm(signal) / (sqnorm(dist) + EPS) + EPS)
-    return sdr.squeeze_(dim=-1)
+    if "background_waveform" in batch:
+        label_waveform = torch.squeeze(batch["background_waveform"])[..., None]
+        refs.append(label_waveform)
+
+    return torch.cat(refs, dim=-1)
+
+
+def compute_source_separation_metrics(estimated, original, references):
+    # Adapted from https://github.com/sigsep/bsseval/issues/3#issuecomment-494995846
+    if estimated.dim() == 3:
+        estimated = torch.squeeze(estimated, dim=1)
+    if original.dim() == 3:
+        original = torch.squeeze(original, dim=1)
+
+    _estimated = estimated
+    _original = original
+    _references = references
+
+    metrics = {}
+    for lpf in (True, False):
+        prefix = ""
+        if lpf:
+            # Apply lowpass filter to look at SI-SDR specific to low frequencies
+            cutoff = 1000
+            original = lowpass_biquad(original,
+                                      sample_rate=SAMPLE_RATE,
+                                      cutoff_freq=cutoff)
+            estimated = lowpass_biquad(estimated,
+                                       sample_rate=SAMPLE_RATE,
+                                       cutoff_freq=cutoff)
+            references = lowpass_biquad(references.transpose(-2, -1),
+                                        sample_rate=SAMPLE_RATE,
+                                        cutoff_freq=cutoff).transpose(-2, -1)
+            prefix = "lpf"
+        else:
+            original = _original
+            estimated = _estimated
+            references = _references
+
+        Rss = torch.matmul(references.transpose(-2, -1), references)
+
+        for scale_invariant in (True, False):
+            if scale_invariant:
+                a = rowdot(estimated, original) / sqnorm(original)
+            else:
+                a = 1
+
+            e_true = a * original
+            e_res = estimated - e_true
+
+            Sss = sqnorm(e_true)
+            Snn = sqnorm(e_res)
+
+            sdr = 10 * torch.log10(Sss / Snn)
+            Rsr = torch.matmul(references.transpose(-2, -1), e_res[..., None])
+            # NOTE: Torch's argument order is opposite of numpy's
+
+            b, _ = torch.solve(Rsr, Rss)
+
+            e_interf = torch.matmul(references, b)[..., 0]
+            e_artif = e_res - e_interf
+
+            sir = 10 * torch.log10(Sss / sqnorm(e_interf))
+            sar = 10 * torch.log10(Sss / sqnorm(e_artif))
+
+            sdr = sdr.squeeze_(dim=-1)
+            sir = sir.squeeze_(dim=-1)
+            sar = sar.squeeze_(dim=-1)
+
+            if scale_invariant:
+                metrics[prefix + 'sisdr'] = sdr
+                metrics[prefix + 'sisir'] = sir
+                metrics[prefix + 'sisar'] = sar
+                metrics[prefix + 'sdsdr'] = 10 * torch.log10(Sss / sqnorm(original - estimated))
+            else:
+                metrics[prefix + 'sdr'] = sdr
+                metrics[prefix + 'sir'] = sir
+                metrics[prefix + 'sar'] = sar
+
+    return metrics
 
 
 def parse_arguments(args):
@@ -154,15 +231,20 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
 
             # Initialize results lists
             subset_results = {"filenames": list(dataset.files)} # Assuming that dataloader preserves order
-            subset_results.update({label + "_input_sisdr": [] for label in dataset.labels})
-            subset_results.update({label + "_sisdr_improvement": [] for label in dataset.labels})
+            source_sep_metric_names = ["sisdr", "sisir", "sisar", "sdr", "sir", "sar", "sdsdr"]
+            for metric_name in source_sep_metric_names:
+                subset_results.update({label + "_input_{}".format(metric_name): []
+                                       for label in dataset.labels})
+                subset_results.update({label + "_recon_{}".format(metric_name): []
+                                       for label in dataset.labels})
+                subset_results.update({label + "_input_lpf{}".format(metric_name): []
+                                       for label in dataset.labels})
+                subset_results.update({label + "_recon_lpf{}".format(metric_name): []
+                                       for label in dataset.labels})
 
             subset_results.update({"mixture_dbfs": []})
             subset_results.update({"isolated_" + label + "_dbfs": [] for label in dataset.labels})
             subset_results.update({"reconstructed_" + label + "_dbfs": [] for label in dataset.labels})
-
-            subset_results.update({label + "_input_sisdr": [] for label in dataset.labels})
-            subset_results.update({label + "_sisdr_improvement": [] for label in dataset.labels})
 
             subset_results.update({label + "_presence_gt": [] for label in dataset.labels})
             subset_results.update({label + "_presence_frame_gt": [] for label in dataset.labels})
@@ -246,14 +328,22 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                     subset_results["isolated_" + label + "_dbfs"] += compute_dbfs_spec(source_maggram, SAMPLE_RATE, train_config, device=device).squeeze().tolist()
                     subset_results["reconstructed_" + label + "_dbfs"] += compute_dbfs_spec(recon_source_maggram, SAMPLE_RATE, train_config, device=device).squeeze().tolist()
 
-                    # Compute SI-SDR with mixture as estimated source
-                    input_sisdr = compute_sisdr(mixture_waveforms, source_waveforms)
-                    # Compute SI-SDR improvement using reconstructed sources
-                    sisdr_imp = compute_sisdr(recon_source_waveforms, source_waveforms) - input_sisdr
+                    reference_waveforms = get_references(batch, label)
+                    # Compute source separation metrics with mixture as estimated source
+                    input_ss_metrics = compute_source_separation_metrics(mixture_waveforms,
+                                                                         source_waveforms,
+                                                                         reference_waveforms)
+                    # Compute source separation metrics with reconstructed sources
+                    recon_ss_metrics = compute_source_separation_metrics(recon_source_waveforms,
+                                                                         source_waveforms,
+                                                                         reference_waveforms)
 
-                    # If label is not present, then set SDR to NaN
-                    # Removing for now, we can always do this masking later...
-                    # sisdr_imp[torch.logical_not(labels[..., idx].bool())] = float('nan')
+                    # Save source separation metrics
+                    for metric_name in source_sep_metric_names:
+                        subset_results["{}_input_{}".format(label, metric_name)] += input_ss_metrics[metric_name].tolist()
+                        subset_results["{}_recon_{}".format(label, metric_name)] += recon_ss_metrics[metric_name].tolist()
+                        subset_results["{}_input_lpf{}".format(label, metric_name)] += input_ss_metrics["lpf" + metric_name].tolist()
+                        subset_results["{}_recon_lpf{}".format(label, metric_name)] += recon_ss_metrics["lpf" + metric_name].tolist()
 
                     # Run classifier on isolated source for later analysis
                     source_cls_pred = classifier(source_maggram)
@@ -264,10 +354,6 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                     source_cls_pred = classifier(recon_source_maggram)
                     for pred_idx, pred_label in enumerate(train_dataset.labels):
                         subset_results["reconstructed_" + label + "_pred_" + pred_label] += source_cls_pred[..., pred_idx].tolist()
-
-                    # Save source separation metrics
-                    subset_results[label + "_input_sisdr"] += input_sisdr.tolist()
-                    subset_results[label + "_sisdr_improvement"] += sisdr_imp.tolist()
 
                     # Save ground truth labels and mixture classification results (since we're already iterating through labels)
                     subset_results[label + "_presence_gt"] += clip_labels[:, label_idx].tolist()
@@ -303,8 +389,9 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                 del x, clip_labels, frame_labels, mixture_waveforms, mixture_maggram, \
                     mixture_phasegram, cos_phasegram, sin_phasegram, \
                     source_waveforms, source_maggram, recon_source_maggram, \
-                    recon_source_stft, recon_source_waveforms, input_sisdr, \
-                    sisdr_imp, source_cls_pred, source_ideal_ratio_mask, batch
+                    recon_source_stft, recon_source_waveforms, input_ss_metrics, \
+                    recon_ss_metrics, source_cls_pred, source_ideal_ratio_mask, batch
+
                 torch.cuda.empty_cache()
 
             # Save results as CSV
