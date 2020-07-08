@@ -118,7 +118,9 @@ class CDSDDataset(Dataset):
         # Compute clip and frame level labels
         clip_label_arr = torch.zeros(self.num_labels)
         frame_label_arr = torch.zeros(num_frames, self.num_labels)
-        num_events = torch.zeros(1, dtype=torch.int16)
+        clip_label_count_arr = torch.zeros(self.num_labels)
+        frame_label_count_arr = torch.zeros(num_frames, self.num_labels)
+        num_events = 0 #torch.zeros(1, dtype=torch.int16)
         for ann in jams_obj.annotations[0].data:
             if ann.value['role'] == "foreground":
                 start_ts = ann.value['event_time']
@@ -128,6 +130,7 @@ class CDSDDataset(Dataset):
 
                 # Update clip level labels
                 clip_label_arr[label_idx] = 1.0
+                clip_label_count_arr[label_idx] += 1.0
 
                 # Update frame level labels
                 if is_stft:
@@ -141,6 +144,7 @@ class CDSDDataset(Dataset):
                     start_idx = int(start_ts * SAMPLE_RATE)
                     end_idx = int(np.ceil(end_ts * SAMPLE_RATE))
                 frame_label_arr[start_idx:end_idx, label_idx] = 1.0
+                frame_label_count_arr[start_idx:end_idx, label_idx] += 1.0
 
                 # Increase event count
                 num_events += 1
@@ -148,6 +152,14 @@ class CDSDDataset(Dataset):
         return {
             'clip_labels': clip_label_arr,
             'frame_labels': frame_label_arr,
+            'clip_label_counts': clip_label_count_arr,
+            'frame_label_counts': frame_label_count_arr,
+            'max_source_polyphony': max_polyphony(frame_label_arr),
+            'gini_source_polyphony': gini_polyphony(frame_label_arr),
+            'max_event_polyphony': max_polyphony(frame_label_count_arr),
+            'max_median_interclass_event_polyphony': max_median_interclass_event_polyphony(frame_label_count_arr),
+            'max_median_intraclass_event_polyphony': max_median_intraclass_event_polyphony(frame_label_count_arr),
+            'gini_event_polyphony': gini_polyphony(frame_label_count_arr),
             'num_events': num_events,
             'is_stft': is_stft
         }
@@ -185,15 +197,10 @@ class CDSDDataset(Dataset):
         if self.transform is not None:
             audio_data = self.transform(audio_data)
 
-        labels_dict = self.get_labels(idx)
-        is_stft = labels_dict['is_stft']
-
-        sample = {
-            'audio_data': audio_data,
-            'clip_labels': labels_dict['clip_labels'],
-            'frame_labels': labels_dict['frame_labels'],
-            'index': torch.tensor(idx, dtype=torch.int16)
-        }
+        sample = self.get_labels(idx)
+        is_stft = sample.pop('is_stft')
+        sample['audio_data'] = audio_data
+        sample['index'] = torch.tensor(idx, dtype=torch.int16)
 
         if is_stft:
             # Compute energy mask
@@ -203,8 +210,6 @@ class CDSDDataset(Dataset):
             sample['energy_mask'] = energy_mask.squeeze()
 
         if self.load_separation_data:
-            sample['num_events'] = labels_dict['num_events']
-
             # Include mixture and separated source waveforms
             sample['mixture_waveform'] = waveform
 
@@ -245,6 +250,53 @@ class CDSDDataset(Dataset):
                         sample[transformed_key] = torch.min(audio_data, sample[transformed_key])
 
         return sample
+
+
+def max_polyphony(frame_labels):
+    '''
+    Given an annotation of sound events, compute the maximum polyphony, i.e.
+    the maximum number of simultaneous events at any given point in time. Only
+    foreground events are taken into consideration for computing the polyphony.
+    Parameters
+    '''
+
+    # ([batch], time, label)
+    # Get maximum number of simultaneously occurring events
+    polyphony = frame_labels.sum(dim=-1).max(dim=-1)[0]
+    return polyphony
+
+
+def max_median_intraclass_event_polyphony(frame_label_counts):
+    return torch.median(frame_label_counts, dim=-1)[0].max(dim=-1)[0]
+
+
+def max_median_interclass_event_polyphony(frame_label_counts):
+    # Polyphony defined as the number of events of other classes
+    classwise_frame_polyphony = torch.sum(frame_label_counts, dim=-1, keepdim=True) - frame_label_counts
+    return torch.median(classwise_frame_polyphony, dim=-1)[0].max(dim=-1)[0]
+
+
+def gini_polyphony(frame_labels):
+    '''
+    Compute the gini coefficient of the annotation's polyphony time series.
+    Useful as an estimate of the polyphony "flatness" or entropy. The
+    coefficient is in the range [0,1] and roughly inverse to entropy: a
+    distribution that's close to uniform will have a low gini coefficient
+    (high entropy), vice versa.
+    https://en.wikipedia.org/wiki/Gini_coefficient
+    '''
+
+    # Sample the polyphony using the specified hop size
+    values = frame_labels.sum(dim=-1)
+
+    # Compute gini as per:
+    # http://www.statsdirect.com/help/default.htm#nonparametric_methods/gini.htm
+    values += 1e-6  # all values must be positive
+    values = torch.sort(values, dim=-1)[0]  # sort values
+    n = values.shape[-1]
+    i = torch.arange(n) + 1
+    gini = torch.sum((2*i - n - 1) * values, dim=-1) / (n * torch.sum(values, dim=-1))
+    return (1 - gini)
 
 
 def get_data_transforms(train_config):
