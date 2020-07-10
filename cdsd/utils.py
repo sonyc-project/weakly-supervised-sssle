@@ -1,7 +1,29 @@
 import math
+import os
+import sys
+from contextlib import contextmanager
 from torch import hann_window, sqrt, ones
 from torch.optim import Adam, SGD
 
+@contextmanager
+def suppress_stdout():
+    with open(os.devnull, "w") as devnull:
+        old_stdout = sys.stdout
+        sys.stdout = devnull
+        try:
+            yield
+        finally:
+            sys.stdout = old_stdout
+
+@contextmanager
+def suppress_stderr():
+    with open(os.devnull, "w") as devnull:
+        old_stderr = sys.stderr
+        sys.stderr = devnull
+        try:
+            yield
+        finally:
+            sys.stderr = old_stderr
 
 def num2tuple(num):
     return num if isinstance(num, tuple) else (num, num)

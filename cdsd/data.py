@@ -9,7 +9,7 @@ import torchvision
 from torch.utils.data import Dataset
 from torchaudio.transforms import AmplitudeToDB, MelScale
 from transforms import Spectrogram, MelSpectrogram, LogMagnitude
-from utils import get_torch_window_fn
+from utils import get_torch_window_fn, suppress_stdout, suppress_stderr
 
 # Note: if we need to use pescador, see https://github.com/pescadores/pescador/issues/133
 # torchaudio.transforms.MelSpectrogram <- Note that this uses "HTK" mels
@@ -187,7 +187,10 @@ class CDSDDataset(Dataset):
         file = self.files[idx]
         audio_path = os.path.join(self.data_dir, file + '.wav')
 
-        waveform, sr = torchaudio.load(audio_path)
+        # Suppress warnings about wave file headers
+        with suppress_stdout():
+            with suppress_stderr():
+                waveform, sr = torchaudio.load(audio_path)
 
         if sr != SAMPLE_RATE:
             raise ValueError('Expected sample rate of {} Hz, but got {} Hz ({})'.format(SAMPLE_RATE, sr, audio_path))
@@ -230,7 +233,10 @@ class CDSDDataset(Dataset):
                     label = "background"
 
                 audio_path = os.path.join(event_dir, event_fname)
-                event_waveform, sr = torchaudio.load(audio_path)
+                # Suppress warnings about wave file headers
+                with suppress_stdout():
+                    with suppress_stderr():
+                        event_waveform, sr = torchaudio.load(audio_path)
                 if sr != SAMPLE_RATE:
                     raise ValueError('Expected sample rate of {} Hz, but got {} Hz ({})'.format(SAMPLE_RATE, sr, audio_path))
 
