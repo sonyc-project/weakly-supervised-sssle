@@ -44,7 +44,7 @@ def get_references(batch, label_list):
     return torch.cat(refs, dim=-1)
 
 
-def compute_source_separation_metrics(estimated, original, references):
+def compute_source_separation_metrics(estimated, original, references, include_lpf=False):
     # Adapted from https://github.com/sigsep/bsseval/issues/3#issuecomment-494995846
     if estimated.dim() == 3:
         estimated = torch.squeeze(estimated, dim=1)
@@ -55,8 +55,13 @@ def compute_source_separation_metrics(estimated, original, references):
     _original = original
     _references = references
 
+    if include_lpf:
+        lpf_options = (True, False)
+    else:
+        lpf_options = (False,)
+
     metrics = {}
-    for lpf in (True, False):
+    for lpf in lpf_options:
         prefix = ""
         if lpf:
             # Apply lowpass filter to look at SI-SDR specific to low frequencies
@@ -67,7 +72,7 @@ def compute_source_separation_metrics(estimated, original, references):
             estimated = lowpass_biquad(estimated,
                                        sample_rate=SAMPLE_RATE,
                                        cutoff_freq=cutoff)
-            references = lowpass_biquad(references.transpose(-2, -1),
+            references = lowpass_biquad(references.transpose(-2, -1).contiguous(),
                                         sample_rate=SAMPLE_RATE,
                                         cutoff_freq=cutoff).transpose(-2, -1)
             prefix = "lpf"
@@ -77,10 +82,11 @@ def compute_source_separation_metrics(estimated, original, references):
             references = _references
 
         Rss = torch.matmul(references.transpose(-2, -1), references)
+        Rss = Rss + EPS * torch.eye(Rss.shape[-1])[None, ...].to(Rss.device)
 
         for scale_invariant in (True, False):
             if scale_invariant:
-                a = rowdot(estimated, original) / sqnorm(original)
+                a = rowdot(estimated, original) / (sqnorm(original) + EPS)
             else:
                 a = 1
 
@@ -90,7 +96,7 @@ def compute_source_separation_metrics(estimated, original, references):
             Sss = sqnorm(e_true)
             Snn = sqnorm(e_res)
 
-            sdr = 10 * torch.log10(Sss / Snn)
+            sdr = 10 * torch.log10(Sss / (Snn + EPS) + EPS)
             Rsr = torch.matmul(references.transpose(-2, -1), e_res[..., None])
             # NOTE: Torch's argument order is opposite of numpy's
 
@@ -99,8 +105,8 @@ def compute_source_separation_metrics(estimated, original, references):
             e_interf = torch.matmul(references, b)[..., 0]
             e_artif = e_res - e_interf
 
-            sir = 10 * torch.log10(Sss / sqnorm(e_interf))
-            sar = 10 * torch.log10(Sss / sqnorm(e_artif))
+            sir = 10 * torch.log10(Sss / (sqnorm(e_interf) + EPS) + EPS)
+            sar = 10 * torch.log10(Sss / (sqnorm(e_artif) + EPS) + EPS)
 
             sdr = sdr.squeeze_(dim=-1)
             sir = sir.squeeze_(dim=-1)
@@ -110,7 +116,7 @@ def compute_source_separation_metrics(estimated, original, references):
                 metrics[prefix + 'sisdr'] = sdr
                 metrics[prefix + 'sisir'] = sir
                 metrics[prefix + 'sisar'] = sar
-                metrics[prefix + 'sdsdr'] = 10 * torch.log10(Sss / sqnorm(original - estimated))
+                metrics[prefix + 'sdsdr'] = 10 * torch.log10(Sss / (sqnorm(original - estimated) + EPS) + EPS)
             else:
                 metrics[prefix + 'sdr'] = sdr
                 metrics[prefix + 'sir'] = sir
@@ -142,6 +148,10 @@ def parse_arguments(args):
                         action='store_true',
                         help='If true, save the estimated masks')
 
+    parser.add_argument('--include-lpf',
+                        action='store_true',
+                        help='If true, also compute source separation metrics with lowpass filtering')
+
     parser.add_argument('--checkpoint',
                         type=str, default='best', choices=('best', 'latest', 'earlystopping'),
                         help='Type of model checkpoint to load.')
@@ -157,7 +167,7 @@ def parse_arguments(args):
     return parser.parse_args(args)
 
 
-def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, save_audio=False, save_masks=False, checkpoint='best', verbose=False):
+def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, save_audio=False, save_masks=False, include_lpf=False, checkpoint='best', verbose=False):
     # Set up device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -237,10 +247,11 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                                        for label in dataset.labels})
                 subset_results.update({label + "_recon_{}".format(metric_name): []
                                        for label in dataset.labels})
-                subset_results.update({label + "_input_lpf{}".format(metric_name): []
-                                       for label in dataset.labels})
-                subset_results.update({label + "_recon_lpf{}".format(metric_name): []
-                                       for label in dataset.labels})
+                if include_lpf:
+                    subset_results.update({label + "_input_lpf{}".format(metric_name): []
+                                           for label in dataset.labels})
+                    subset_results.update({label + "_recon_lpf{}".format(metric_name): []
+                                           for label in dataset.labels})
 
             subset_results.update({"mixture_dbfs": []})
             subset_results.update({"isolated_" + label + "_dbfs": [] for label in dataset.labels})
@@ -328,22 +339,25 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                     subset_results["isolated_" + label + "_dbfs"] += compute_dbfs_spec(source_maggram, SAMPLE_RATE, train_config, device=device).squeeze().tolist()
                     subset_results["reconstructed_" + label + "_dbfs"] += compute_dbfs_spec(recon_source_maggram, SAMPLE_RATE, train_config, device=device).squeeze().tolist()
 
-                    reference_waveforms = get_references(batch, label)
+                    reference_waveforms = get_references(batch, train_dataset.labels).to(device)
                     # Compute source separation metrics with mixture as estimated source
                     input_ss_metrics = compute_source_separation_metrics(mixture_waveforms,
                                                                          source_waveforms,
-                                                                         reference_waveforms)
+                                                                         reference_waveforms,
+                                                                         include_lpf=include_lpf)
                     # Compute source separation metrics with reconstructed sources
                     recon_ss_metrics = compute_source_separation_metrics(recon_source_waveforms,
                                                                          source_waveforms,
-                                                                         reference_waveforms)
+                                                                         reference_waveforms,
+                                                                         include_lpf=include_lpf)
 
                     # Save source separation metrics
                     for metric_name in source_sep_metric_names:
                         subset_results["{}_input_{}".format(label, metric_name)] += input_ss_metrics[metric_name].tolist()
                         subset_results["{}_recon_{}".format(label, metric_name)] += recon_ss_metrics[metric_name].tolist()
-                        subset_results["{}_input_lpf{}".format(label, metric_name)] += input_ss_metrics["lpf" + metric_name].tolist()
-                        subset_results["{}_recon_lpf{}".format(label, metric_name)] += recon_ss_metrics["lpf" + metric_name].tolist()
+                        if include_lpf:
+                            subset_results["{}_input_lpf{}".format(label, metric_name)] += input_ss_metrics["lpf" + metric_name].tolist()
+                            subset_results["{}_recon_lpf{}".format(label, metric_name)] += recon_ss_metrics["lpf" + metric_name].tolist()
 
                     # Run classifier on isolated source for later analysis
                     source_cls_pred = classifier(source_maggram)
@@ -415,5 +429,6 @@ if __name__ == "__main__":
              num_data_workers=args.num_data_workers,
              save_audio=args.save_audio,
              save_masks=args.save_masks,
+             include_lpf=args.include_lpf,
              checkpoint=args.checkpoint,
              verbose=args.verbose)
