@@ -32,6 +32,9 @@ class CDSDDataset(Dataset):
         self.load_separation_data = load_separation_data
         self.background_present = False
 
+        # Set audio backend to soundfile
+        torchaudio.set_audio_backend('soundfile')
+
         labels = set()
         # Note, subset is being overwritten here
         for subset in subset_names:
