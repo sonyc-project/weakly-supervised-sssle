@@ -20,11 +20,7 @@ class Separator(nn.Module):
         if self.transform is not None:
             x = self.transform(x)
 
-        # Remove channel dimension
-        x = x.squeeze(dim=1)
         x = self._forward(x)
-        # Add channel dimension back in
-        x = x[:, None, ...]
         return x
 
 
@@ -82,6 +78,9 @@ class BLSTMSpectrogramSeparator(Separator):
         self.n_bins = n_bins
 
     def _forward(self, x):
+        # Remove channel dimension
+        x = x.squeeze(dim=1)
+
         batch_size = len(x)
         # Reshape since PyTorch convention is for time to be the last dimension,
         # but we need to operate on the channel dimension
@@ -95,7 +94,89 @@ class BLSTMSpectrogramSeparator(Separator):
         x = x.view(batch_size, -1, self.n_bins, self.n_classes)
         # Swap frequence and time dims to adhere to PyTorch convention
         x = x.transpose(2, 1)
+
+        # Add channel dimension back in
+        x = x[:, None, ...]
         return x
+
+
+class UNetDown(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=5, stride=2, padding=2),
+            nn.BatchNorm2d(out_channels),
+            nn.LeakyReLU(negative_slope=0.2),
+        )
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+class UNetUp(nn.Module):
+    def __init__(self, in_channels, out_channels, skip=True, even_dims=(False, False), nonlinearity='relu'):
+        super().__init__()
+        output_padding = tuple(1 if x else 0 for x in even_dims)
+
+        if nonlinearity == 'relu':
+            nl_layer = nn.ReLU()
+        elif nonlinearity == 'sigmoid':
+            nl_layer = nn.Sigmoid()
+        else:
+            raise ValueError('Invalid nonlinearity: {}'.format(nonlinearity))
+
+        self.deconv = nn.Sequential(
+            nn.ConvTranspose2d(in_channels * 2 if skip else in_channels,
+                               out_channels,
+                               kernel_size=5,
+                               stride=2,
+                               padding=2,
+                               output_padding=output_padding),
+            nn.BatchNorm2d(out_channels),
+            nl_layer,
+            nn.Dropout2d(p=0.5),
+        )
+        self.skip = skip
+
+    def forward(self, x1, x2=None):
+        if x2 is not None and self.skip:
+            x1 = torch.cat([x2, x1], dim=1)
+        return self.deconv(x1)
+
+
+class UNetSpectrogramSeparator(Separator):
+    def __init__(self, n_classes, transform=None, **kwargs):
+        super(UNetSpectrogramSeparator, self).__init__(n_classes, transform=transform)
+        self.n_channels = 1
+        self.n_classes = n_classes
+
+        self.inc = UNetDown(self.n_channels, 16)
+        self.down1 = UNetDown(16, 32)
+        self.down2 = UNetDown(32, 64)
+        self.down3 = UNetDown(64, 128)
+        self.down4 = UNetDown(128, 256)
+        self.down5 = UNetDown(256, 512)
+        self.up1 = UNetUp(512, 256, skip=False, even_dims=(False, True))
+        self.up2 = UNetUp(256, 128, even_dims=(False, True))
+        self.up3 = UNetUp(128, 64, even_dims=(False, False))
+        self.up4 = UNetUp(64, 32, even_dims=(False, True))
+        self.up5 = UNetUp(32, 16, even_dims=(False, False))
+        self.outc = UNetUp(16, n_classes, even_dims=(False, False))
+
+    def _forward(self, x):
+        x1 = self.inc(x)
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        x5 = self.down4(x4)
+        x6 = self.down5(x5)
+        x7 = self.up1(x6)
+        x8 = self.up2(x7, x5)
+        x9 = self.up3(x8, x4)
+        x10 = self.up4(x9, x3)
+        x11 = self.up5(x10, x2)
+        mask = self.outc(x11, x1, nonlinearity='sigmoid')
+        return mask
 
 
 class Classifier(nn.Module):
@@ -297,6 +378,10 @@ def construct_separator(train_config, dataset, weights_path=None, require_init=F
         separator = BLSTMSpectrogramSeparator(n_classes=num_classes,
                                               transform=separator_input_transform,
                                               **separator_config["parameters"])
+    elif separator_config["model"] == "UNetSpectrogramSeparator":
+        separator = UNetSpectrogramSeparator(n_classes=num_classes,
+                                             transform=separator_input_transform,
+                                             **separator_config["parameters"])
     else:
         raise ValueError("Invalid separator model type: {}".format(separator_config["model"]))
 
