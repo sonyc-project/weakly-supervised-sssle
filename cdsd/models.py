@@ -161,7 +161,7 @@ class UNetSpectrogramSeparator(Separator):
         self.up3 = UNetUp(128, 64, even_dims=(False, False))
         self.up4 = UNetUp(64, 32, even_dims=(False, True))
         self.up5 = UNetUp(32, 16, even_dims=(False, False))
-        self.outc = UNetUp(16, n_classes, even_dims=(False, False))
+        self.outc = UNetUp(16, n_classes, even_dims=(False, False), nonlinearity='sigmoid')
 
     def _forward(self, x):
         x1 = self.inc(x)
@@ -175,8 +175,8 @@ class UNetSpectrogramSeparator(Separator):
         x9 = self.up3(x8, x4)
         x10 = self.up4(x9, x3)
         x11 = self.up5(x10, x2)
-        mask = self.outc(x11, x1, nonlinearity='sigmoid')
-        return mask
+        mask = self.outc(x11, x1)
+        return mask[..., None].transpose(1, -1).contiguous()
 
 
 class Classifier(nn.Module):
@@ -385,7 +385,7 @@ def construct_separator(train_config, dataset, weights_path=None, require_init=F
     else:
         raise ValueError("Invalid separator model type: {}".format(separator_config["model"]))
 
-    # Load pretrained model weights for separator if specified
+    ## Load pretrained model weights for separator if specified
     if not weights_path:
         if checkpoint == 'best':
             weights_path = separator_config.get("best_path") \
