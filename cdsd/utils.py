@@ -1,6 +1,7 @@
 import math
 import os
 import sys
+import torch.nn as nn
 from contextlib import contextmanager
 from torch import hann_window, sqrt, ones
 from torch.optim import Adam, SGD
@@ -32,11 +33,21 @@ def num2tuple(num):
     return num if isinstance(num, tuple) else (num, num)
 
 
-def conv2d_output_shape(h_w, kernel_size=1, stride=1, padding=0, dilation=1):
+def conv2d_output_shape(h_w, kernel_size=1, stride=1, padding=0, dilation=1, conv_layer=None):
     # https://discuss.pytorch.org/t/utility-function-for-calculating-the-shape-of-a-conv-output/11173/7
-    h_w, kernel_size, stride, padding, dilation = num2tuple(h_w), \
-                                              num2tuple(kernel_size), num2tuple(
-        stride), num2tuple(padding), num2tuple(dilation)
+    if conv_layer is None:
+        kernel_size = num2tuple(kernel_size)
+        stride = num2tuple(stride)
+        padding = num2tuple(padding)
+        dilation = num2tuple(dilation)
+    else:
+        assert isinstance(conv_layer, nn.Conv2d)
+        kernel_size = conv_layer.kernel_size
+        stride = conv_layer.stride
+        padding = conv_layer.padding
+        dilation = conv_layer.dilation
+
+    h_w = num2tuple(h_w)
     padding = num2tuple(padding[0]), num2tuple(padding[1])
 
     h = math.floor(
