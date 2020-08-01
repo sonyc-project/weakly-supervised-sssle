@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from torch import hann_window, sqrt, ones
 from torch.optim import Adam, SGD
 
+
 @contextmanager
 def suppress_stdout():
     with open(os.devnull, "w") as devnull:
@@ -15,6 +16,7 @@ def suppress_stdout():
         finally:
             sys.stdout = old_stdout
 
+
 @contextmanager
 def suppress_stderr():
     with open(os.devnull, "w") as devnull:
@@ -24,6 +26,7 @@ def suppress_stderr():
             yield
         finally:
             sys.stderr = old_stderr
+
 
 def num2tuple(num):
     return num if isinstance(num, tuple) else (num, num)

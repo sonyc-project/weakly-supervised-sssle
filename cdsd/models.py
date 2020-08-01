@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.nn.parallel
 import torch.utils.data
 from data import get_data_transforms
 from utils import same_pad, conv2d_output_shape
+from copy import deepcopy
 
 
 class Separator(nn.Module):
@@ -106,7 +106,7 @@ class UNetDown(nn.Module):
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=5, stride=2, padding=2),
             nn.BatchNorm2d(out_channels),
-            nn.LeakyReLU(negative_slope=0.2),
+            nn.ReLU(),
         )
 
     def forward(self, x):
@@ -114,7 +114,8 @@ class UNetDown(nn.Module):
 
 
 class UNetUp(nn.Module):
-    def __init__(self, in_channels, out_channels, skip=True, even_dims=(False, False), nonlinearity='relu'):
+    def __init__(self, in_channels, out_channels, skip=True,
+                 even_dims=(False, False), nonlinearity='relu'):
         super().__init__()
         output_padding = tuple(1 if x else 0 for x in even_dims)
 
@@ -134,7 +135,6 @@ class UNetUp(nn.Module):
                                output_padding=output_padding),
             nn.BatchNorm2d(out_channels),
             nl_layer,
-            nn.Dropout2d(p=0.5),
         )
         self.skip = skip
 
@@ -145,37 +145,77 @@ class UNetUp(nn.Module):
 
 
 class UNetSpectrogramSeparator(Separator):
-    def __init__(self, n_classes, transform=None, **kwargs):
-        super(UNetSpectrogramSeparator, self).__init__(n_classes, transform=transform)
+    def __init__(self, n_bins, n_frames, n_classes, n_blocks=5, init_channels=16,
+                 transform=None, **kwargs):
+        super(UNetSpectrogramSeparator, self).__init__(n_classes,
+                                                       transform=transform)
         self.n_channels = 1
         self.n_classes = n_classes
+        self.n_blocks = n_blocks
 
-        self.inc = UNetDown(self.n_channels, 16)
-        self.down1 = UNetDown(16, 32)
-        self.down2 = UNetDown(32, 64)
-        self.down3 = UNetDown(64, 128)
-        self.down4 = UNetDown(128, 256)
-        self.down5 = UNetDown(256, 512)
-        self.up1 = UNetUp(512, 256, skip=False, even_dims=(False, True))
-        self.up2 = UNetUp(256, 128, even_dims=(False, True))
-        self.up3 = UNetUp(128, 64, even_dims=(False, False))
-        self.up4 = UNetUp(64, 32, even_dims=(False, True))
-        self.up5 = UNetUp(32, 16, even_dims=(False, False))
-        self.outc = UNetUp(16, n_classes, even_dims=(False, False), nonlinearity='sigmoid')
+        num_channels = init_channels
+        output_shape = (n_bins, n_frames)
+        self.block_data_shapes = [output_shape]
+
+        self.inc = UNetDown(self.n_channels, num_channels)
+        output_shape = conv2d_output_shape(output_shape,
+                                           conv_layer=self.inc.conv[0])
+        self.block_data_shapes.append(output_shape)
+
+        # Construct down blocks
+        self.down_layers = []
+        for block_idx in range(n_blocks):
+            layer = UNetDown(num_channels, num_channels * 2)
+            self.down_layers.append(layer)
+            # Register layer
+            self.add_module("down" + str(block_idx + 1), layer)
+            # Get output shape for adding padding to up blocks
+            output_shape = conv2d_output_shape(output_shape,
+                                               conv_layer=layer.conv[0])
+            self.block_data_shapes.append(output_shape)
+            # Update number of channels
+            num_channels *= 2
+
+        # Construct up blocks
+        self.up_layers = []
+        for block_idx in range(n_blocks):
+            # First up block does not have a skip connection
+            skip = (block_idx != 0)
+            # Figure out if we need to pad to get the right output shape
+            input_shape = self.block_data_shapes[-(2 + block_idx)]
+            even_dims = (input_shape[0] % 2 == 0, input_shape[1] % 2 == 0)
+            layer = UNetUp(num_channels, num_channels // 2,
+                           skip=skip, even_dims=even_dims)
+            self.up_layers.append(layer)
+            # Register layer
+            self.add_module("up" + str(block_idx + 1), layer)
+            # Update number of channels
+            num_channels //= 2
+
+        # Sanity check
+        assert num_channels == init_channels
+        # Set up output layer
+        self.outc = UNetUp(init_channels,
+                           n_classes,
+                           even_dims=(False, False),
+                           nonlinearity='sigmoid')
 
     def _forward(self, x):
-        x1 = self.inc(x)
-        x2 = self.down1(x1)
-        x3 = self.down2(x2)
-        x4 = self.down3(x3)
-        x5 = self.down4(x4)
-        x6 = self.down5(x5)
-        x7 = self.up1(x6)
-        x8 = self.up2(x7, x5)
-        x9 = self.up3(x8, x4)
-        x10 = self.up4(x9, x3)
-        x11 = self.up5(x10, x2)
-        mask = self.outc(x11, x1)
+        x_down_list = []
+        x = self.inc(x)
+        x_down_list.append(x)
+        for down_layer in self.down_layers:
+            x = down_layer(x)
+            x_down_list.append(x)
+
+        for block_idx, up_layer in enumerate(self.up_layers):
+            if block_idx > 0:
+                x_skip = x_down_list[-(1 + block_idx)]
+            else:
+                x_skip = None
+            x = up_layer(x, x_skip)
+
+        mask = self.outc(x, x_down_list[0])
         return mask[..., None].transpose(1, -1).contiguous()
 
 
@@ -373,15 +413,30 @@ def construct_separator(train_config, dataset, weights_path=None, require_init=F
     if separate_background:
         num_classes += 1
 
+    input_shape = dataset.get_input_shape()
+    separator_params = deepcopy(separator_config["parameters"])
+
     # Construct separator
     if separator_config["model"] == "BLSTMSpectrogramSeparator":
-        separator = BLSTMSpectrogramSeparator(n_classes=num_classes,
+        # For backwards compatibility
+        separator_params.pop("n_bins", None)
+        separator_params.pop("n_frames", None)
+        _, n_bins, n_frames = input_shape
+        separator = BLSTMSpectrogramSeparator(n_bins=n_bins,
+                                              n_frames=n_frames,
+                                              n_classes=num_classes,
                                               transform=separator_input_transform,
-                                              **separator_config["parameters"])
+                                              **separator_params)
     elif separator_config["model"] == "UNetSpectrogramSeparator":
-        separator = UNetSpectrogramSeparator(n_classes=num_classes,
+        # For backwards compatibility
+        separator_params.pop("n_bins", None)
+        separator_params.pop("n_frames", None)
+        _, n_bins, n_frames = input_shape
+        separator = UNetSpectrogramSeparator(n_bins=n_bins,
+                                             n_frames=n_frames,
+                                             n_classes=num_classes,
                                              transform=separator_input_transform,
-                                             **separator_config["parameters"])
+                                             **separator_params)
     else:
         raise ValueError("Invalid separator model type: {}".format(separator_config["model"]))
 
@@ -427,15 +482,24 @@ def construct_classifier(train_config, dataset, label_mode, weights_path=None, r
     elif label_mode == "frame":
         assert pooling is None
 
+    input_shape = dataset.get_input_shape()
+    classifier_params = deepcopy(classifier_config["parameters"])
+
     # Construct classifier
     if classifier_config["model"] == "BLSTMSpectrogramClassifier":
-        classifier = BLSTMSpectrogramClassifier(n_classes=dataset.num_labels,
+        classifier_params.pop("n_bins", None)
+        _, n_bins, _ = input_shape
+        classifier = BLSTMSpectrogramClassifier(n_bins=n_bins,
+                                                n_classes=dataset.num_labels,
                                                 transform=classifier_input_transform,
-                                                **classifier_config["parameters"])
+                                                **classifier_params)
     elif classifier_config["model"] == "CRNNSpectrogramClassifier":
-        classifier = CRNNSpectrogramClassifier(n_classes=dataset.num_labels,
-                                                transform=classifier_input_transform,
-                                                **classifier_config["parameters"])
+        classifier_params.pop("n_bins", None)
+        _, n_bins, _ = input_shape
+        classifier = CRNNSpectrogramClassifier(n_bins=n_bins,
+                                               n_classes=dataset.num_labels,
+                                               transform=classifier_input_transform,
+                                               **classifier_params)
     else:
         raise ValueError("Invalid classifier model type: {}".format(classifier_config["model"]))
 

@@ -89,6 +89,37 @@ class CDSDDataset(Dataset):
     def __len__(self):
         return len(self.files)
 
+    def get_input_shape(self):
+        # Assumes all files are the same length
+        file = self.files[0]
+        audio_path = os.path.join(self.data_dir, file + '.wav')
+        waveform_len = int(librosa.get_duration(filename=audio_path) * SAMPLE_RATE)
+
+        is_timefreq = False
+        hop_length = 1
+        num_bins = None
+        if self.transform is not None:
+            for t in self.transform.transforms:
+                # There should only be at most one transform that
+                # effects the time dimension (since we don't allow
+                # the resample transformation)
+                if isinstance(t, Spectrogram):
+                    is_timefreq = True
+                    hop_length = t.hop_length
+                    num_bins = t.win_length // 2 + 1
+                elif isinstance(t, MelSpectrogram):
+                    is_timefreq = True
+                    hop_length = t.hop_length
+                    num_bins = t.n_mels
+                elif isinstance(t, MelScale):
+                    num_bins = t.n_mels
+
+        if is_timefreq:
+            num_frames = waveform_len // hop_length + 1
+            return (1, num_bins, num_frames)
+        else:
+            return (1, waveform_len)
+
     def get_labels(self, idx):
         if torch.is_tensor(idx):
             idx = idx.item()
@@ -98,7 +129,7 @@ class CDSDDataset(Dataset):
         jams_path = os.path.join(self.data_dir, file + '.jams')
         waveform_len = int(librosa.get_duration(filename=audio_path) * SAMPLE_RATE)
 
-        is_stft = False
+        is_timefreq = False
         hop_length = 1
         pad_ts = 0.0
         if self.transform is not None:
@@ -107,7 +138,7 @@ class CDSDDataset(Dataset):
                 # effects the time dimension (since we don't allow
                 # the resample transformation)
                 if isinstance(t, Spectrogram) or isinstance(t, MelSpectrogram):
-                    is_stft = True
+                    is_timefreq = True
                     hop_length = t.hop_length
                     # Account for centering
                     pad_ts = (t.win_length // 2) / SAMPLE_RATE
@@ -136,7 +167,7 @@ class CDSDDataset(Dataset):
                 clip_label_count_arr[label_idx] += 1.0
 
                 # Update frame level labels
-                if is_stft:
+                if is_timefreq:
                     # Compute frame indices, such that each frame contains
                     # the source
                     start_idx = int((start_ts - pad_ts + hop_ts) * SAMPLE_RATE / hop_length)
@@ -164,7 +195,7 @@ class CDSDDataset(Dataset):
             'max_median_intraclass_event_polyphony': max_median_intraclass_event_polyphony(frame_label_count_arr),
             'gini_event_polyphony': gini_polyphony(frame_label_count_arr),
             'num_events': num_events,
-            'is_stft': is_stft
+            'is_timefreq': is_timefreq
         }
 
     def get_num_frames(self):
@@ -204,11 +235,11 @@ class CDSDDataset(Dataset):
             audio_data = self.transform(audio_data)
 
         sample = self.get_labels(idx)
-        is_stft = sample.pop('is_stft')
+        is_timefreq = sample.pop('is_timefreq')
         sample['audio_data'] = audio_data
         sample['index'] = torch.tensor(idx, dtype=torch.int16)
 
-        if is_stft:
+        if is_timefreq:
             # Compute energy mask
             frame_energy = audio_data.sum(dim=1, keepdim=True)
             threshold = frame_energy.max(dim=2, keepdim=True)[0] * 0.01
@@ -254,7 +285,7 @@ class CDSDDataset(Dataset):
                 for waveform_key, waveform in event_waveforms.items():
                     transformed_key = waveform_key.replace('waveform', 'transformed')
                     sample[transformed_key] = self.transform(waveform)
-                    if is_stft:
+                    if is_timefreq:
                         # Take element-wise min of source and mixture spectrograms
                         sample[transformed_key] = torch.min(audio_data, sample[transformed_key])
 
