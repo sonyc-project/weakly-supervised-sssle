@@ -101,12 +101,20 @@ class BLSTMSpectrogramSeparator(Separator):
 
 
 class UNetDown(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, nonlinearity='relu', leakiness=0.2):
         super().__init__()
+
+        if nonlinearity == 'relu':
+            nl_layer = nn.ReLU()
+        elif nonlinearity == 'leaky_relu':
+            nl_layer = nn.LeakyReLU(leakiness)
+        else:
+            raise ValueError('Invalid nonlinearity: {}'.format(nonlinearity))
+
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=5, stride=2, padding=2),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(),
+            nl_layer,
         )
 
     def forward(self, x):
@@ -115,7 +123,8 @@ class UNetDown(nn.Module):
 
 class UNetUp(nn.Module):
     def __init__(self, in_channels, out_channels, skip=True,
-                 even_dims=(False, False), nonlinearity='relu'):
+                 even_dims=(False, False), nonlinearity='relu',
+                 dropout=False, p_dropout=0.5):
         super().__init__()
         output_padding = tuple(1 if x else 0 for x in even_dims)
 
@@ -126,7 +135,7 @@ class UNetUp(nn.Module):
         else:
             raise ValueError('Invalid nonlinearity: {}'.format(nonlinearity))
 
-        self.deconv = nn.Sequential(
+        modules = [
             nn.ConvTranspose2d(in_channels * 2 if skip else in_channels,
                                out_channels,
                                kernel_size=5,
@@ -135,7 +144,12 @@ class UNetUp(nn.Module):
                                output_padding=output_padding),
             nn.BatchNorm2d(out_channels),
             nl_layer,
-        )
+        ]
+
+        if dropout:
+            modules.append(nn.Dropout2d(p=p_dropout))
+
+        self.deconv = nn.Sequential(*modules)
         self.skip = skip
 
     def forward(self, x1, x2=None):
@@ -146,7 +160,7 @@ class UNetUp(nn.Module):
 
 class UNetSpectrogramSeparator(Separator):
     def __init__(self, n_bins, n_frames, n_classes, n_blocks=5, init_channels=16,
-                 transform=None, **kwargs):
+                 transform=None, janssen_variant=False, **kwargs):
         super(UNetSpectrogramSeparator, self).__init__(n_classes,
                                                        transform=transform)
         self.n_channels = 1
@@ -165,7 +179,13 @@ class UNetSpectrogramSeparator(Separator):
         # Construct down blocks
         self.down_layers = []
         for block_idx in range(n_blocks):
-            layer = UNetDown(num_channels, num_channels * 2)
+            # Janssen et al. variant uses Leaky ReLU
+            if janssen_variant:
+                layer = UNetDown(num_channels, num_channels * 2,
+                                 nonlinearity='leaky_relu', leakiness=0.2)
+            else:
+                layer = UNetDown(num_channels, num_channels * 2,
+                                 nonlinearity='relu')
             self.down_layers.append(layer)
             # Register layer
             self.add_module("down" + str(block_idx + 1), layer)
@@ -184,8 +204,15 @@ class UNetSpectrogramSeparator(Separator):
             # Figure out if we need to pad to get the right output shape
             input_shape = self.block_data_shapes[-(2 + block_idx)]
             even_dims = (input_shape[0] % 2 == 0, input_shape[1] % 2 == 0)
-            layer = UNetUp(num_channels, num_channels // 2,
-                           skip=skip, even_dims=even_dims)
+            # Janssen et al. variant uses drop out in the first half of
+            # up blocks
+            if janssen_variant and (block_idx < ((n_blocks + 1) // 2)):
+                layer = UNetUp(num_channels, num_channels // 2,
+                               skip=skip, even_dims=even_dims,
+                               dropout=True, p_dropout=0.5)
+            else:
+                layer = UNetUp(num_channels, num_channels // 2,
+                               skip=skip, even_dims=even_dims, dropout=False)
             self.up_layers.append(layer)
             # Register layer
             self.add_module("up" + str(block_idx + 1), layer)
