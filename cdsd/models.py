@@ -222,9 +222,12 @@ class UNetSpectrogramSeparator(Separator):
         # Sanity check
         assert num_channels == init_channels
         # Set up output layer
+
+        input_shape = self.block_data_shapes[-(2 + n_blocks)]
+        even_dims = (input_shape[0] % 2 == 0, input_shape[1] % 2 == 0)
         self.outc = UNetUp(init_channels,
                            n_classes,
-                           even_dims=(False, False),
+                           even_dims=even_dims,
                            nonlinearity='sigmoid')
 
     def _forward(self, x):
