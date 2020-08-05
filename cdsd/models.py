@@ -459,7 +459,6 @@ def construct_separator(train_config, dataset, weights_path=None, require_init=F
         separator_params.pop("n_frames", None)
         _, n_bins, n_frames = input_shape
         separator = BLSTMSpectrogramSeparator(n_bins=n_bins,
-                                              n_frames=n_frames,
                                               n_classes=num_classes,
                                               transform=separator_input_transform,
                                               **separator_params)
