@@ -22,7 +22,8 @@
         ],
         "parameters": {
             "n_blocks": 4,
-            "init_channels": 16
+            "init_channels": 16,
+            "janssen_variant": true
         }
     },
 
