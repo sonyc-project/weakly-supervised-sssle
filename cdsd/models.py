@@ -171,7 +171,13 @@ class UNetSpectrogramSeparator(Separator):
         output_shape = (n_bins, n_frames)
         self.block_data_shapes = [output_shape]
 
-        self.inc = UNetDown(self.n_channels, num_channels)
+        # Janssen et al. variant uses Leaky ReLU
+        if janssen_variant:
+            self.inc = UNetDown(self.n_channels, num_channels,
+                                nonlinearity='leaky_relu', leakiness=0.2)
+        else:
+            self.inc = UNetDown(self.n_channels, num_channels,
+                                nonlinearity='relu')
         output_shape = conv2d_output_shape(output_shape,
                                            conv_layer=self.inc.conv[0])
         self.block_data_shapes.append(output_shape)
