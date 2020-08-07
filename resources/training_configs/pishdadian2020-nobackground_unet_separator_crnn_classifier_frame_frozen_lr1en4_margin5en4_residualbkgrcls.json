@@ -1,0 +1,77 @@
+{
+    "input_transforms": [
+        {
+            "name": "Spectrogram",
+            "parameters": {
+                "n_fft": 512,
+                "hop_length": 128,
+                "window_fn": "sqrt_hann_window",
+                "power": 1.0,
+                "window_scaling": true
+            }
+        }
+    ],
+
+    "separator": {
+        "model": "UNetSpectrogramSeparator",
+        "input_transforms": [
+            {
+                "name": "LogMagnitude",
+                "parameters": {}
+            }
+        ],
+        "parameters": {
+            
+            "n_blocks": 3,
+            "init_channels": 64
+            
+        }
+    },
+
+
+    "classifier": {
+        "model": "CRNNSpectrogramClassifier",
+        "parameters": {
+            
+            "blstm_hidden_dim": 100,
+            "conv_kernel_size": 5,
+            "num_input_channels": 1,
+            "bias": true,
+            "pooling": null
+        },
+        "input_transforms": [],
+
+        "trainable": false,
+        "pretrained_path": "/scratch/jtc440/cdsd/models/pishdadian2020-nobackground_crnn_classifier_frame_lr1en4/classifier_earlystopping.pt"
+    },
+
+    "losses": {
+        "mixture": {
+            "name": "mixture_margin_asymmetric_loss",
+            "margin": 0.0005,
+            "weight": 100.0,
+            "energy_masking": true
+        },
+        "classification": {
+            "weight": 1.0
+        }
+    },
+
+    "training": {
+        "batch_size": 8,
+        "num_epochs": 50,
+        "label_mode": "frame",
+        "class_prior_weighting": true,
+        "early_stopping_patience": 5,
+        "early_stopping_terminate": true,
+        "residual_background": true,
+        "classify_background": true,
+        "optimizer": {
+            "name": "Adam",
+            "parameters": {
+                "lr": 0.0001
+            }
+        }
+    }
+
+}
