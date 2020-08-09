@@ -197,7 +197,6 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
             train_loss = None
             src_spec = None
             src_spec_diff = None
-            src_spec_diff_flat = None
             src_loss = None
 
             for label_idx, label in enumerate(train_dataset.labels):
@@ -257,7 +256,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
             # Cleanup
             del x, masks, energy_mask, batch, mask, x_masked, train_loss, weight, \
-                norm_factor, src_spec, src_spec_diff, src_spec_diff_flat, src_loss
+                norm_factor, src_spec, src_spec_diff, src_spec_diff, src_loss
             torch.cuda.empty_cache()
 
         # Evaluate on validation set
@@ -280,7 +279,6 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 valid_loss = None
                 src_spec = None
                 src_spec_diff = None
-                src_spec_diff_flat = None
                 src_loss = None
 
                 for label_idx, label in enumerate(valid_dataset.labels):
@@ -317,7 +315,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     else:
                         src_spec_diff = src_spec_diff.reshape(curr_batch_size, -1)
 
-                    src_loss = torch.norm(src_spec_diff_flat, p=1, dim=1) / norm_factor
+                    src_loss = torch.norm(src_spec_diff, p=1, dim=1) / norm_factor
                     src_loss = src_loss.mean()
 
                     # Accumulate loss for each source
@@ -336,7 +334,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
                 # Cleanup
                 del x, masks, energy_mask, batch, mask, x_masked, valid_loss, weight, \
-                    norm_factor, src_spec, src_spec_diff, src_spec_diff_flat, src_loss
+                    norm_factor, src_spec, src_spec_diff, src_spec_diff, src_loss
                 torch.cuda.empty_cache()
 
         # Log losses
