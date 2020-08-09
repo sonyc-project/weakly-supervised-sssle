@@ -48,8 +48,8 @@ def get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking=No
         absent_spec *= energy_mask
 
     if flatten:
-        mix_present_spec_diff_flat = mix_present_spec_diff.view(batch_size, -1)
-        absent_spec_flat = absent_spec.view(batch_size, -1)
+        mix_present_spec_diff_flat = mix_present_spec_diff.reshape(batch_size, -1)
+        absent_spec_flat = absent_spec.reshape(batch_size, -1)
         return mix_present_spec_diff_flat, absent_spec_flat
     else:
         return mix_present_spec_diff, absent_spec, x
