@@ -5,6 +5,8 @@ import torch.nn as nn
 from contextlib import contextmanager
 from torch import hann_window, sqrt, ones
 from torch.optim import Adam, SGD
+from torchaudio.transforms import AmplitudeToDB, MelScale
+from transforms import Spectrogram, MelSpectrogram, LogMagnitude
 
 
 @contextmanager
@@ -27,6 +29,22 @@ def suppress_stderr():
             yield
         finally:
             sys.stderr = old_stderr
+
+
+def is_transform_timefreq(transform):
+    is_timefreq = False
+    for t in transform.transforms:
+        # There should only be at most one transform that
+        # effects the time dimension (since we don't allow
+        # the resample transformation)
+        if isinstance(t, Spectrogram):
+            is_timefreq = True
+        elif isinstance(t, MelSpectrogram):
+            is_timefreq = True
+        elif isinstance(t, MelScale):
+            is_timefreq = True
+
+    return is_timefreq
 
 
 def num2tuple(num):

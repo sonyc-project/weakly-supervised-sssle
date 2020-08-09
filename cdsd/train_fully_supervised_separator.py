@@ -11,8 +11,9 @@ import torch.nn as nn
 import numpy as np
 from copy import deepcopy
 from torch.utils.data import DataLoader
+from torchaudio.transforms import MelScale
 from tqdm import tqdm
-from data import get_data_transforms, CDSDDataset
+from data import get_data_transforms, CDSDDataset, SAMPLE_RATE
 from models import construct_separator, construct_classifier
 from losses import get_normalization_factor
 from utils import get_optimizer
@@ -115,6 +116,14 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
     class_prior_weighting = train_config["training"].get("class_prior_weighting", False)
     energy_masking = train_config["losses"]["separation"].get("energy_masking", False)
+    spectrum = train_config["losses"]["separation"].get("spectrum", False)
+    mel_scale = train_config["losses"]["separation"].get("mel_scale", False)
+    mel_params = train_config["losses"]["separation"].get("mel_params", {})
+
+    mel_tf = None
+    if mel_scale:
+        mel_tf = MelScale(sample_rate=SAMPLE_RATE, **mel_params).to(device)
+
     patience = train_config["training"].get("early_stopping_patience", 5)
     early_stopping_terminate = train_config["training"].get("early_stopping_terminate", False)
 
@@ -172,7 +181,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
             energy_mask = batch["energy_mask"].to(device)
             curr_batch_size = x.size()[0]
             norm_factor = get_normalization_factor(x, energy_mask,
-                                                   energy_masking=energy_masking)
+                                                   energy_masking=energy_masking,
+                                                   spectrum=spectrum)
 
             if epoch == 0 and batch_idx == 0:
                 print("Input size: {}".format(x.size()))
@@ -208,11 +218,23 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
                 # Compute loss
                 src_spec = batch[label + "_transformed"].to(device)
-                src_spec_diff = (src_spec - x_masked) * weight
+
+                # Optionally apply mel scale
+                if mel_scale:
+                    src_spec_diff = (mel_tf(src_spec) - mel_tf(x_masked)) * weight
+                else:
+                    src_spec_diff = (src_spec - x_masked) * weight
+
                 if energy_masking:
                     src_spec_diff = src_spec_diff * energy_mask[:, None, None, :]
-                src_spec_diff_flat = src_spec_diff.view(curr_batch_size, -1)
-                src_loss = torch.norm(src_spec_diff_flat, p=1, dim=1) / norm_factor
+
+                if spectrum:
+                    src_spec_diff = src_spec_diff.view(curr_batch_size, -1)
+                else:
+                    # Sum over time and channels
+                    src_spec_diff = src_spec_diff.sum(dim=-1).sum(dim=1)
+
+                src_loss = torch.norm(src_spec_diff, p=1, dim=1) / norm_factor
                 src_loss = src_loss.mean()
 
                 # Accumulate loss for each source
