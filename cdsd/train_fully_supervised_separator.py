@@ -229,10 +229,10 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     src_spec_diff = src_spec_diff * energy_mask[:, None, None, :]
 
                 if spectrum:
-                    src_spec_diff = src_spec_diff.view(curr_batch_size, -1)
-                else:
                     # Sum over time and channels
                     src_spec_diff = src_spec_diff.sum(dim=-1).sum(dim=1)
+                else:
+                    src_spec_diff = src_spec_diff.reshape(curr_batch_size, -1)
 
                 src_loss = torch.norm(src_spec_diff, p=1, dim=1) / norm_factor
                 src_loss = src_loss.mean()
@@ -301,10 +301,22 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
                     # Compute loss
                     src_spec = batch[label + "_transformed"].to(device)
-                    src_spec_diff = (src_spec - x_masked) * weight
+
+                    # Optionally apply mel scale
+                    if mel_scale:
+                        src_spec_diff = (mel_tf(src_spec) - mel_tf(x_masked)) * weight
+                    else:
+                        src_spec_diff = (src_spec - x_masked) * weight
+
                     if energy_masking:
                         src_spec_diff = src_spec_diff * energy_mask[:, None, None, :]
-                    src_spec_diff_flat = src_spec_diff.view(curr_batch_size, -1)
+
+                    if spectrum:
+                        # Sum over time and channels
+                        src_spec_diff = src_spec_diff.sum(dim=-1).sum(dim=1)
+                    else:
+                        src_spec_diff = src_spec_diff.reshape(curr_batch_size, -1)
+
                     src_loss = torch.norm(src_spec_diff_flat, p=1, dim=1) / norm_factor
                     src_loss = src_loss.mean()
 
