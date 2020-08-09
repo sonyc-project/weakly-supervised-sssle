@@ -256,7 +256,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
             # Cleanup
             del x, masks, energy_mask, batch, mask, x_masked, train_loss, weight, \
-                norm_factor, src_spec, src_spec_diff, src_spec_diff, src_loss
+                norm_factor, src_spec, src_spec_diff, src_loss
             torch.cuda.empty_cache()
 
         # Evaluate on validation set
@@ -334,7 +334,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
                 # Cleanup
                 del x, masks, energy_mask, batch, mask, x_masked, valid_loss, weight, \
-                    norm_factor, src_spec, src_spec_diff, src_spec_diff, src_loss
+                    norm_factor, src_spec, src_spec_diff, src_loss
                 torch.cuda.empty_cache()
 
         # Log losses
