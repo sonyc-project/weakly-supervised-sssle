@@ -7,6 +7,7 @@ from data import SAMPLE_RATE
 
 def get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking=None, flatten=True, mel_scale=False, mel_params=None):
     # Optionally apply mel filter bank
+    x_orig = x
     mel_tf = None
     if mel_scale:
         if mel_params is None:
@@ -32,7 +33,7 @@ def get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking=No
 
     for idx in range(num_labels):
         mask = masks[..., idx]
-        x_masked = x * mask
+        x_masked = x_orig * mask
         if mel_scale:
             x_masked = mel_tf(x_masked)
 
@@ -103,13 +104,13 @@ def mixture_margin_loss(x, labels, masks, energy_mask, energy_masking=None, marg
 def mixture_margin_asymmetric_loss(x, labels, masks, energy_mask, energy_masking=None, margin=None, spectrum=False, mel_scale=False):
     assert margin is not None
     if spectrum:
-        mix_present_spec_diff, absent_spec = get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking, flatten=False, mel_scale=mel_scale)
+        mix_present_spec_diff, absent_spec, x = get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking, flatten=False, mel_scale=mel_scale)
         norm_factor = get_normalization_factor(x, energy_mask, spectrum=True)
         # Sum time and channel dimensions
         mix_present_spec_diff = mix_present_spec_diff.sum(dim=-1).sum(dim=1)
         absent_spec = absent_spec.sum(dim=-1).sum(dim=1)
     else:
-        mix_present_spec_diff, absent_spec = get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking, flatten=True, mel_scale=mel_scale)
+        mix_present_spec_diff, absent_spec, x = get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking, flatten=True, mel_scale=mel_scale)
         norm_factor = get_normalization_factor(x, energy_mask, energy_masking=energy_masking)
 
     present_underest = F.relu(F.relu(mix_present_spec_diff).sum(dim=1) - margin) / norm_factor
