@@ -11,15 +11,15 @@ def get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking=No
     if mel_scale:
         if mel_params is None:
             mel_params = {}
-        mel_tf = MelScale(sample_rate=SAMPLE_RATE, **mel_params)
+        mel_tf = MelScale(sample_rate=SAMPLE_RATE, **mel_params).to(x.device)
         x = mel_tf(x)
 
     batch_size, n_channel, n_freq, n_time = x.size()
     assert n_channel == 1
     num_labels = labels.size()[-1]
 
-    present_spec = torch.zeros_like(x)
-    absent_spec = torch.zeros_like(x)
+    present_spec = torch.zeros_like(x, device=x.device)
+    absent_spec = torch.zeros_like(x, device=x.device)
 
     if labels.ndim == 2:
         # Broadcast to channel, freq, and time dims
