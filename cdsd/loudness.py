@@ -1,8 +1,8 @@
 # Adapted from https://github.com/sonyc-project/sonycnode/blob/79fa47652b37c47a7e289f183613ec02fdb9abbe/capture/weight_filts.py
-import numpy as np
 import torch
+from torch.nn import Module
 from torchaudio.functional import complex_norm, create_fb_matrix
-from data import get_spec_params, get_mel_params
+from data import get_spec_params, get_mel_params, get_mel_loss_params
 
 
 def get_freq_weighting(nfft, sr, weighting='a', device=None):
@@ -70,10 +70,8 @@ def compute_dbfs(audio, sr, train_config, weighting='a', device=None):
     return dbfs
 
 
-def compute_dbfs_spec(spec, sr, train_config, weighting='a', device=None):
-    spec_params = get_spec_params(train_config)
+def compute_dbfs_spec(spec, sr, spec_params, mel_params=None, weighting='a', device=None):
     n_fft = spec_params["n_fft"]
-    mel_config = get_mel_params(train_config)
 
     # Account for window scaling
     if spec_params["window_scaling"]:
@@ -87,11 +85,12 @@ def compute_dbfs_spec(spec, sr, train_config, weighting='a', device=None):
     spec = spec.mean(dim=-1)
 
     weighting = get_freq_weighting(n_fft, sr, weighting=weighting, device=device)[None, :]
-    if mel_config:
+    # If we are estimating in the mel frequency scale, alter freq band weights
+    if mel_params:
         fb = create_fb_matrix(n_freqs=n_fft // 2 + 1,
-                              f_min=mel_config["f_min"],
-                              f_max=mel_config["f_max"],
-                              n_mels=mel_config["n_mels"],
+                              f_min=mel_params["f_min"],
+                              f_max=mel_params["f_max"],
+                              n_mels=mel_params["n_mels"],
                               sample_rate=sr)
         weighting = torch.mm(weighting.unsqueeze(dim=0), fb)
     spec = weighting * spec
@@ -105,3 +104,4 @@ def compute_dbfs_spec(spec, sr, train_config, weighting='a', device=None):
     mean_energy = scale * spec.sum(dim=-1)
     dbfs = 10 * torch.log10(mean_energy)
     return dbfs
+

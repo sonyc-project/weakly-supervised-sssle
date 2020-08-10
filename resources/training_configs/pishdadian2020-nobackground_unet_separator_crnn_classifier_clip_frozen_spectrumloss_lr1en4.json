@@ -51,7 +51,7 @@
             "margin": 0.5,
             "weight": 100.0,
             "energy_masking": true,
-            "spectrum": true,
+            "target_type": "spectrum",
             "mel_scale": false,
             "mel_params": {
                 "n_mels": 40

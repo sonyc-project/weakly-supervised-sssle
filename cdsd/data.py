@@ -406,3 +406,10 @@ def get_mel_params(train_config):
             }
             break
     return mel_config
+
+
+def get_mel_loss_params(train_config):
+    mixture_loss_config = train_config["losses"].get("mixture", None)
+    if mixture_loss_config is None:
+        mixture_loss_config = train_config["losses"].get("separation", None)
+    return mixture_loss_config.get("mel_params", None)

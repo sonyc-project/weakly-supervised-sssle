@@ -51,7 +51,7 @@
             "margin": 0.5,
             "weight": 100.0,
             "energy_masking": true,
-            "target_type": "spectrum",
+            "target_type": "dbfs",
             "mel_scale": true,
             "mel_params": {
                 "n_mels": 40

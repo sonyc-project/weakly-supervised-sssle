@@ -11,8 +11,8 @@ import pandas as pd
 import numpy as np
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from data import get_data_transforms, CDSDDataset, SAMPLE_RATE, get_spec_params
-from models import construct_separator, construct_classifier
+from data import get_data_transforms, CDSDDataset, SAMPLE_RATE, get_spec_params, get_mel_params, get_mel_loss_params
+from models import construct_separator
 from torchaudio.functional import magphase
 from transforms import istft, spectrogram
 from loudness import compute_dbfs_spec
@@ -75,6 +75,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
 
     # get STFT parameters:
     spec_params = get_spec_params(train_config)
+    mel_params = get_mel_params(train_config) or get_mel_loss_params(train_config)
 
     # Set up data loaders
     input_transform = get_data_transforms(train_config)
@@ -96,9 +97,6 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
         separator = nn.DataParallel(separator)
     separator.to(device)
     separator.eval()
-
-    # Set up label downsampling
-    input_num_frames = train_dataset.get_num_frames()
 
     with torch.no_grad():
         for subset in ('train', 'valid', 'test'):
@@ -173,7 +171,7 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                     os.makedirs(recon_masks_dir, exist_ok=True)
 
                 # Compute dBFS for the mixture
-                subset_results["mixture_dbfs"] += compute_dbfs_spec(x, SAMPLE_RATE, train_config, device=device).squeeze().tolist()
+                subset_results["mixture_dbfs"] += compute_dbfs_spec(x, SAMPLE_RATE, spec_params, mel_params=mel_params, device=device).squeeze().tolist()
 
                 for label_idx, label in enumerate(train_dataset.labels):
                     source_waveforms = batch[label + "_waveform"].to(device)
@@ -201,8 +199,8 @@ def evaluate(root_data_dir, train_config, output_dir=None, num_data_workers=1, s
                         pad_mode="reflect")
 
                     # Compute dBFS for the isolated and reconstructed sources
-                    subset_results["isolated_" + label + "_dbfs"] += compute_dbfs_spec(source_maggram, SAMPLE_RATE, train_config, device=device).squeeze().tolist()
-                    subset_results["reconstructed_" + label + "_dbfs"] += compute_dbfs_spec(recon_source_maggram, SAMPLE_RATE, train_config, device=device).squeeze().tolist()
+                    subset_results["isolated_" + label + "_dbfs"] += compute_dbfs_spec(source_maggram, SAMPLE_RATE, spec_params, mel_params=mel_params, device=device).squeeze().tolist()
+                    subset_results["reconstructed_" + label + "_dbfs"] += compute_dbfs_spec(recon_source_maggram, SAMPLE_RATE, spec_params, mel_params=mel_params, device=device).squeeze().tolist()
 
                     reference_waveforms = get_references(batch, train_dataset.labels).to(device)
                     # Compute source separation metrics with mixture as estimated source

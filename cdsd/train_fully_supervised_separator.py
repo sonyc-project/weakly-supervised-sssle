@@ -13,8 +13,9 @@ from copy import deepcopy
 from torch.utils.data import DataLoader
 from torchaudio.transforms import MelScale
 from tqdm import tqdm
-from data import get_data_transforms, CDSDDataset, SAMPLE_RATE
+from data import get_data_transforms, CDSDDataset, SAMPLE_RATE, get_spec_params
 from models import construct_separator, construct_classifier
+from loudness import compute_dbfs_spec
 from losses import get_normalization_factor
 from utils import get_optimizer
 from logs import FSSSHistoryLogger
@@ -116,7 +117,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
     class_prior_weighting = train_config["training"].get("class_prior_weighting", False)
     energy_masking = train_config["losses"]["separation"].get("energy_masking", False)
-    spectrum = train_config["losses"]["separation"].get("spectrum", False)
+    target_type = train_config["losses"]["separation"].get("target_type", "timefreq")
+    spec_params = get_spec_params(train_config)
     mel_scale = train_config["losses"]["separation"].get("mel_scale", False)
     mel_params = train_config["losses"]["separation"].get("mel_params", {})
 
@@ -180,9 +182,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
             frame_labels = batch["frame_labels"].to(device)
             energy_mask = batch["energy_mask"].to(device)
             curr_batch_size = x.size()[0]
-            norm_factor = get_normalization_factor(x, energy_mask,
-                                                   energy_masking=energy_masking,
-                                                   spectrum=spectrum)
+            norm_factor = get_normalization_factor(x, energy_masking=energy_masking, target_type=target_type)
 
             if epoch == 0 and batch_idx == 0:
                 print("Input size: {}".format(x.size()))
@@ -220,18 +220,25 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
                 # Optionally apply mel scale
                 if mel_scale:
-                    src_spec_diff = (mel_tf(src_spec) - mel_tf(x_masked)) * weight
-                else:
-                    src_spec_diff = (src_spec - x_masked) * weight
+                    src_spec = mel_tf(src_spec)
+                    x_masked = mel_tf(x_masked)
 
+                src_spec_diff = (src_spec - x_masked) * weight
                 if energy_masking:
                     src_spec_diff = src_spec_diff * energy_mask[:, None, None, :]
 
-                if spectrum:
+                if target_type == "timefreq":
+                    src_spec_diff = src_spec_diff.reshape(curr_batch_size, -1)
+                elif target_type == "spectrum":
                     # Sum over time and channels
                     src_spec_diff = src_spec_diff.sum(dim=-1).sum(dim=1)
-                else:
-                    src_spec_diff = src_spec_diff.reshape(curr_batch_size, -1)
+                elif target_type == "energy":
+                    src_spec_diff = src_spec_diff.sum(dim=-1).sum(dim=-1).sum(dim=-1, keepdim=True)
+                elif target_type == "dbfs":
+                    src_spec_dbfs = compute_dbfs_spec(src_spec, SAMPLE_RATE, spec_params=spec_params, mel_params=mel_params, device=x.device)
+                    x_masked_dbfs = compute_dbfs_spec(x_masked, SAMPLE_RATE, spec_params=spec_params, mel_params=mel_params, device=x.device)
+                    src_spec_diff = (src_spec_dbfs - x_masked_dbfs).unsqueeze(-1)
+                    del src_spec_dbfs, x_masked_dbfs
 
                 src_loss = torch.norm(src_spec_diff, p=1, dim=1) / norm_factor
                 src_loss = src_loss.mean()
@@ -267,8 +274,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 frame_labels = batch["frame_labels"].to(device)
                 energy_mask = batch["energy_mask"].to(device)
                 curr_batch_size = x.size()[0]
-                norm_factor = get_normalization_factor(x, energy_mask,
-                                                       energy_masking=energy_masking)
+                norm_factor = get_normalization_factor(x, energy_masking=energy_masking, target_type=target_type)
                 # Set models to eval mode
                 separator.eval()
 
@@ -302,18 +308,25 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
                     # Optionally apply mel scale
                     if mel_scale:
-                        src_spec_diff = (mel_tf(src_spec) - mel_tf(x_masked)) * weight
-                    else:
-                        src_spec_diff = (src_spec - x_masked) * weight
+                        src_spec = mel_tf(src_spec)
+                        x_masked = mel_tf(x_masked)
 
+                    src_spec_diff = (src_spec - x_masked) * weight
                     if energy_masking:
                         src_spec_diff = src_spec_diff * energy_mask[:, None, None, :]
 
-                    if spectrum:
+                    if target_type == "timefreq":
+                        src_spec_diff = src_spec_diff.reshape(curr_batch_size, -1)
+                    elif target_type == "spectrum":
                         # Sum over time and channels
                         src_spec_diff = src_spec_diff.sum(dim=-1).sum(dim=1)
-                    else:
-                        src_spec_diff = src_spec_diff.reshape(curr_batch_size, -1)
+                    elif target_type == "energy":
+                        src_spec_diff = src_spec_diff.sum(dim=-1).sum(dim=-1).sum(dim=-1, keepdim=True)
+                    elif target_type == "dbfs":
+                        src_spec_dbfs = compute_dbfs_spec(src_spec, SAMPLE_RATE, spec_params=spec_params, mel_params=mel_params, device=x.device)
+                        x_masked_dbfs = compute_dbfs_spec(x_masked, SAMPLE_RATE, spec_params=spec_params, mel_params=mel_params, device=x.device)
+                        src_spec_diff = (src_spec_dbfs - x_masked_dbfs).unsqueeze(-1)
+                        del src_spec_dbfs, x_masked_dbfs
 
                     src_loss = torch.norm(src_spec_diff, p=1, dim=1) / norm_factor
                     src_loss = src_loss.mean()

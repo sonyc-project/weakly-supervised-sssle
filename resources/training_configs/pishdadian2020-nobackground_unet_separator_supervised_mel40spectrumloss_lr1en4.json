@@ -31,7 +31,7 @@
     "losses": {
         "separation": {
             "energy_masking": true,
-            "spectrum": true,
+            "target_type": "spectrum",
             "mel_scale": true,
             "mel_params": {
                 "n_mels": 40
