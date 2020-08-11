@@ -72,7 +72,7 @@ def get_normalization_factor(x, energy_masking=False, target_type="timefreq"):
         raise ValueError("Invalid target type: {}".format(target_type))
 
 
-def transform_spec_to_target(mix_present_spec_diff, present_spec, absent_spec, x, target_type, spec_params=None, mel_params=None):
+def transform_spec_to_target(mix_present_spec_diff, present_spec, absent_spec, x, target_type, spec_params=None, mel_scale=False, mel_params=None):
     batch_size, n_channel, n_freq, n_time = x.size()
     if target_type == "timefreq":
         mix_present_spec_diff = mix_present_spec_diff.reshape(batch_size, -1)
@@ -82,10 +82,10 @@ def transform_spec_to_target(mix_present_spec_diff, present_spec, absent_spec, x
         mix_present_spec_diff = mix_present_spec_diff.sum(dim=-1).sum(dim=1)
         absent_spec = absent_spec.sum(dim=-1).sum(dim=1)
     elif target_type == "dbfs":
-        x_dbfs = compute_dbfs_spec(x, SAMPLE_RATE, spec_params=spec_params, mel_params=mel_params, device=x.device)
-        present_dbfs = compute_dbfs_spec(present_spec, SAMPLE_RATE, spec_params=spec_params, mel_params=mel_params, device=x.device)
+        x_dbfs = compute_dbfs_spec(x, SAMPLE_RATE, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params, device=x.device)
+        present_dbfs = compute_dbfs_spec(present_spec, SAMPLE_RATE, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params, device=x.device)
         mix_present_spec_diff = (x_dbfs - present_dbfs).unsqueeze(-1)
-        absent_spec = compute_dbfs_spec(absent_spec, SAMPLE_RATE, spec_params=spec_params, mel_params=mel_params, device=x.device).unsqueeze(-1)
+        absent_spec = compute_dbfs_spec(absent_spec, SAMPLE_RATE, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params, device=x.device).unsqueeze(-1)
     elif target_type == "energy":
         # Sum time, freq, and channel dimensions
         mix_present_spec_diff = mix_present_spec_diff.sum(dim=-1).sum(dim=-1).sum(dim=-1, keepdim=True)
@@ -98,7 +98,7 @@ def transform_spec_to_target(mix_present_spec_diff, present_spec, absent_spec, x
 
 def mixture_loss(x, labels, masks, energy_mask, energy_masking=False, target_type="timefreq", spec_params=None, mel_scale=False, mel_params=None):
     mix_present_spec_diff, present_spec, absent_spec, x = get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking, flatten=(target_type == "timefreq"), mel_scale=mel_scale, mel_params=mel_params)
-    mix_present_spec_diff, absent_spec = transform_spec_to_target(mix_present_spec_diff, present_spec, absent_spec, x, target_type, spec_params=spec_params, mel_params=mel_params)
+    mix_present_spec_diff, absent_spec = transform_spec_to_target(mix_present_spec_diff, present_spec, absent_spec, x, target_type, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params)
     norm_factor = get_normalization_factor(x, energy_masking=energy_masking, target_type=target_type)
 
     present_loss = torch.norm(mix_present_spec_diff, p=1, dim=1) / norm_factor
@@ -115,7 +115,7 @@ def mixture_loss(x, labels, masks, energy_mask, energy_masking=False, target_typ
 def mixture_margin_loss(x, labels, masks, energy_mask, energy_masking=False, margin=None, target_type="timefreq", spec_params=None, mel_scale=False, mel_params=None):
     assert margin is not None
     mix_present_spec_diff, present_spec, absent_spec, x = get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking, flatten=(target_type == "timefreq"), mel_scale=mel_scale, mel_params=mel_params)
-    mix_present_spec_diff, absent_spec = transform_spec_to_target(mix_present_spec_diff, present_spec, absent_spec, x, target_type, spec_params=spec_params, mel_params=mel_params)
+    mix_present_spec_diff, absent_spec = transform_spec_to_target(mix_present_spec_diff, present_spec, absent_spec, x, target_type, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params)
     norm_factor = get_normalization_factor(x, energy_masking=energy_masking, target_type=target_type)
 
     present_loss = F.relu(torch.norm(mix_present_spec_diff, p=1, dim=1) - margin) / norm_factor
@@ -132,7 +132,7 @@ def mixture_margin_loss(x, labels, masks, energy_mask, energy_masking=False, mar
 def mixture_margin_asymmetric_loss(x, labels, masks, energy_mask, energy_masking=False, margin=None, target_type="timefreq", spec_params=None, mel_scale=False, mel_params=None):
     assert margin is not None
     mix_present_spec_diff, present_spec, absent_spec, x = get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking, flatten=(target_type == "timefreq"), mel_scale=mel_scale, mel_params=mel_params)
-    mix_present_spec_diff, absent_spec = transform_spec_to_target(mix_present_spec_diff, present_spec, absent_spec, x, target_type, spec_params=spec_params, mel_params=mel_params)
+    mix_present_spec_diff, absent_spec = transform_spec_to_target(mix_present_spec_diff, present_spec, absent_spec, x, target_type, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params)
     norm_factor = get_normalization_factor(x, energy_masking=energy_masking, target_type=target_type)
 
     present_underest = F.relu(F.relu(mix_present_spec_diff).sum(dim=1) - margin) / norm_factor
@@ -156,7 +156,6 @@ def get_mixture_loss_function(train_config):
     spec_params = get_spec_params(train_config)
     mel_scale = mixture_loss_config.get("mel_scale", False)
     mel_params = mixture_loss_config.get("mel_params", None)
-    assert ((not mel_scale) and (mel_params is None)) or (mel_scale and (mel_params is not None))
 
     if loss_name == "mixture_loss":
         return partial(mixture_loss,

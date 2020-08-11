@@ -70,7 +70,7 @@ def compute_dbfs(audio, sr, train_config, weighting='a', device=None):
     return dbfs
 
 
-def compute_dbfs_spec(spec, sr, spec_params, mel_params=None, weighting='a', device=None):
+def compute_dbfs_spec(spec, sr, spec_params, mel_scale=False, mel_params=None, weighting='a', device=None):
     n_fft = spec_params["n_fft"]
 
     # Account for window scaling
@@ -86,10 +86,11 @@ def compute_dbfs_spec(spec, sr, spec_params, mel_params=None, weighting='a', dev
 
     weighting = get_freq_weighting(n_fft, sr, weighting=weighting, device=device)[None, :]
     # If we are estimating in the mel frequency scale, alter freq band weights
-    if mel_params:
+    if mel_scale:
+        assert mel_params is not None
         fb = create_fb_matrix(n_freqs=n_fft // 2 + 1,
-                              f_min=mel_params["f_min"],
-                              f_max=mel_params["f_max"],
+                              f_min=mel_params.get("f_min", 0.0),
+                              f_max=mel_params.get("f_max", sr / 2.0),
                               n_mels=mel_params["n_mels"],
                               sample_rate=sr)
         weighting = torch.mm(weighting.unsqueeze(dim=0), fb)

@@ -402,7 +402,7 @@ def get_mel_params(train_config):
             mel_config = {
                 "n_mels": transform_config["n_mels"],
                 "f_min": transform_config.get("f_min", 0.0),
-                "f_max": transform_config.get("f_max", 8000.0)
+                "f_max": transform_config.get("f_max", SAMPLE_RATE / 2.0)
             }
             break
     return mel_config
