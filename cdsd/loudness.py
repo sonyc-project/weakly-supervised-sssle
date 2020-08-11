@@ -93,6 +93,8 @@ def compute_dbfs_spec(spec, sr, spec_params, mel_scale=False, mel_params=None, w
                               f_max=mel_params.get("f_max", sr / 2.0),
                               n_mels=mel_params["n_mels"],
                               sample_rate=sr)
+        if device is not None:
+            fb = fb.to(device)
         weighting = torch.mm(weighting.unsqueeze(dim=0), fb)
     spec = weighting * spec
 
