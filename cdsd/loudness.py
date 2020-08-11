@@ -84,7 +84,7 @@ def compute_dbfs_spec(spec, sr, spec_params, mel_scale=False, mel_params=None, w
     # Take mean of frequency bins across time
     spec = spec.mean(dim=-1)
 
-    weighting = get_freq_weighting(n_fft, sr, weighting=weighting, device=device)[None, :]
+    weighting = get_freq_weighting(n_fft, sr, weighting=weighting, device=device)
     # If we are estimating in the mel frequency scale, alter freq band weights
     if mel_scale:
         assert mel_params is not None
@@ -95,8 +95,8 @@ def compute_dbfs_spec(spec, sr, spec_params, mel_scale=False, mel_params=None, w
                               sample_rate=sr)
         if device is not None:
             fb = fb.to(device)
-        weighting = torch.mm(weighting.unsqueeze(dim=0), fb)
-    spec = weighting * spec
+        weighting = torch.matmul(fb.T, weighting)
+    spec = spec * weighting.unsqueeze(0)
 
     # Account for DC/Nyquist
     spec[..., 0] *= 0.5
