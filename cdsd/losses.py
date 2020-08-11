@@ -78,18 +78,18 @@ def transform_spec_to_target(mix_present_spec_diff, present_spec, absent_spec, x
         mix_present_spec_diff = mix_present_spec_diff.reshape(batch_size, -1)
         absent_spec = absent_spec.reshape(batch_size, -1)
     elif target_type == "spectrum":
-        # Sum time and channel dimensions
-        mix_present_spec_diff = mix_present_spec_diff.sum(dim=-1).sum(dim=1)
-        absent_spec = absent_spec.sum(dim=-1).sum(dim=1)
+        # Average over time and channels
+        mix_present_spec_diff = mix_present_spec_diff.mean(dim=-1).mean(dim=1)
+        absent_spec = absent_spec.mean(dim=-1).mean(dim=1)
     elif target_type == "dbfs":
         x_dbfs = compute_dbfs_spec(x, SAMPLE_RATE, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params, device=x.device)
         present_dbfs = compute_dbfs_spec(present_spec, SAMPLE_RATE, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params, device=x.device)
         mix_present_spec_diff = (x_dbfs - present_dbfs).unsqueeze(-1)
         absent_spec = compute_dbfs_spec(absent_spec, SAMPLE_RATE, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params, device=x.device).unsqueeze(-1)
     elif target_type == "energy":
-        # Sum time, freq, and channel dimensions
-        mix_present_spec_diff = mix_present_spec_diff.sum(dim=-1).sum(dim=-1).sum(dim=-1, keepdim=True)
-        absent_spec = absent_spec.sum(dim=-1).sum(dim=-1).sum(dim=-1, keepdim=True)
+        # Average over time, freq, and channel dimensions
+        mix_present_spec_diff = mix_present_spec_diff.mean(dim=-1).mean(dim=-1).mean(dim=-1, keepdim=True)
+        absent_spec = absent_spec.mean(dim=-1).mean(dim=-1).mean(dim=-1, keepdim=True)
     else:
         raise ValueError("Invalid target type: {}".format(target_type))
 

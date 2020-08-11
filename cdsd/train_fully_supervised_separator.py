@@ -230,10 +230,10 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 if target_type == "timefreq":
                     src_spec_diff = src_spec_diff.reshape(curr_batch_size, -1)
                 elif target_type == "spectrum":
-                    # Sum over time and channels
-                    src_spec_diff = src_spec_diff.sum(dim=-1).sum(dim=1)
+                    # Average over time and channels
+                    src_spec_diff = src_spec_diff.mean(dim=-1).mean(dim=1)
                 elif target_type == "energy":
-                    src_spec_diff = src_spec_diff.sum(dim=-1).sum(dim=-1).sum(dim=-1, keepdim=True)
+                    src_spec_diff = src_spec_diff.mean(dim=-1).mean(dim=-1).mean(dim=-1, keepdim=True)
                 elif target_type == "dbfs":
                     src_spec_dbfs = compute_dbfs_spec(src_spec, SAMPLE_RATE, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params, device=x.device)
                     x_masked_dbfs = compute_dbfs_spec(x_masked, SAMPLE_RATE, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params, device=x.device)
@@ -318,10 +318,10 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     if target_type == "timefreq":
                         src_spec_diff = src_spec_diff.reshape(curr_batch_size, -1)
                     elif target_type == "spectrum":
-                        # Sum over time and channels
-                        src_spec_diff = src_spec_diff.sum(dim=-1).sum(dim=1)
+                        # Average over time and channels
+                        src_spec_diff = src_spec_diff.mean(dim=-1).mean(dim=1)
                     elif target_type == "energy":
-                        src_spec_diff = src_spec_diff.sum(dim=-1).sum(dim=-1).sum(dim=-1, keepdim=True)
+                        src_spec_diff = src_spec_diff.mean(dim=-1).mean(dim=-1).mean(dim=-1, keepdim=True)
                     elif target_type == "dbfs":
                         src_spec_dbfs = compute_dbfs_spec(src_spec, SAMPLE_RATE, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params, device=x.device)
                         x_masked_dbfs = compute_dbfs_spec(x_masked, SAMPLE_RATE, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params, device=x.device)
