@@ -266,9 +266,10 @@ def get_separation_loss_function(train_config, device=None):
         target_type = separation_loss_config.get("target_type", "timefreq")
         mel_scale = separation_loss_config.get("mel_scale", False)
         mel_params = separation_loss_config.get("mel_params", None)
-        mel_tf = MelScale(sample_rate=SAMPLE_RATE, **mel_params)
-        if device is not None:
-            mel_tf = mel_tf.to(device)
+        if mel_params is not None:
+            mel_tf = MelScale(sample_rate=SAMPLE_RATE, **mel_params)
+            if device is not None:
+                mel_tf = mel_tf.to(device)
 
         loss_func = partial(separation_loss,
                             mel_tf=mel_tf,

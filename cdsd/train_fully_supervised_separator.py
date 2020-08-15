@@ -114,7 +114,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
     separator.to(device)
 
     class_prior_weighting = train_config["training"].get("class_prior_weighting", False)
-    separation_loss_fn = get_separation_loss_function(train_config)
+    separation_loss_fn = get_separation_loss_function(train_config, device=device)
 
 
     patience = train_config["training"].get("early_stopping_patience", 5)
