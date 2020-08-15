@@ -412,6 +412,8 @@ def get_mel_loss_params(train_config):
     mixture_loss_config_list = train_config["losses"].get("mixture", [])
     if not mixture_loss_config_list:
         mixture_loss_config_list = train_config["losses"].get("separation", [])
+    if type(mixture_loss_config_list) == dict:
+        mixture_loss_config_list = [mixture_loss_config_list]
     mel_params = None
     # Assumes all defined mel params are the same...
     for mixture_loss_config in mixture_loss_config_list:
