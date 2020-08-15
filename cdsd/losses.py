@@ -219,9 +219,10 @@ def get_mixture_loss_function(train_config):
         return create_average_of_losses(loss_func_list, loss_weight_list=loss_weight_list)
 
 
-def separation_loss(src_spec, x_masked, weight, norm_factor, energy_mask, mel_tf, energy_masking=False, target_type="timefreq", spec_params=None, mel_scale=False, mel_params=None):
+def separation_loss(src_spec, x_masked, weight, energy_mask, mel_tf=None, energy_masking=False, target_type="timefreq", spec_params=None, mel_scale=False, mel_params=None):
     # Optionally apply mel scale
     if mel_scale:
+        assert mel_tf is not None
         src_spec = mel_tf(src_spec)
         x_masked = mel_tf(x_masked)
 
@@ -244,12 +245,13 @@ def separation_loss(src_spec, x_masked, weight, norm_factor, energy_mask, mel_tf
     else:
         raise ValueError("Invalid target type: {}".format(target_type))
 
+    norm_factor = get_normalization_factor(src_spec, energy_masking=energy_masking, target_type=target_type)
     src_loss = torch.norm(src_spec_diff, p=1, dim=1) / norm_factor
     src_loss = src_loss.mean()
     return src_loss
 
 
-def get_separation_loss_function(train_config):
+def get_separation_loss_function(train_config, device=None):
     separation_loss_config_list = train_config["losses"]["separation"]
     spec_params = get_spec_params(train_config)
 
@@ -264,8 +266,12 @@ def get_separation_loss_function(train_config):
         target_type = separation_loss_config.get("target_type", "timefreq")
         mel_scale = separation_loss_config.get("mel_scale", False)
         mel_params = separation_loss_config.get("mel_params", None)
+        mel_tf = MelScale(sample_rate=SAMPLE_RATE, **mel_params)
+        if device is not None:
+            mel_tf = mel_tf.to(device)
 
         loss_func = partial(separation_loss,
+                            mel_tf=mel_tf,
                             energy_masking=energy_masking,
                             target_type=target_type,
                             spec_params=spec_params,

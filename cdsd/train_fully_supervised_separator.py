@@ -11,12 +11,10 @@ import torch.nn as nn
 import numpy as np
 from copy import deepcopy
 from torch.utils.data import DataLoader
-from torchaudio.transforms import MelScale
 from tqdm import tqdm
-from data import get_data_transforms, CDSDDataset, SAMPLE_RATE, get_spec_params
+from data import get_data_transforms, CDSDDataset
 from models import construct_separator
-from loudness import compute_dbfs_spec
-from losses import get_normalization_factor, get_separation_loss_function
+from losses import get_separation_loss_function
 from utils import get_optimizer
 from logs import FSSSHistoryLogger
 
@@ -116,16 +114,8 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
     separator.to(device)
 
     class_prior_weighting = train_config["training"].get("class_prior_weighting", False)
-    spec_params = get_spec_params(train_config)
-    separation_loss_func = get_separation_loss_function(train_config)
-    energy_masking = train_config["losses"]["separation"].get("energy_masking", False)
-    mel_scale = train_config["losses"]["separation"].get("mel_scale", False)
-    mel_params = train_config["losses"]["separation"].get("mel_params", {})
-    target_type = train_config["losses"]["separation"].get("target_type", "timefreq")
+    separation_loss_fn = get_separation_loss_function(train_config)
 
-    mel_tf = None
-    if mel_scale:
-        mel_tf = MelScale(sample_rate=SAMPLE_RATE, **mel_params).to(device)
 
     patience = train_config["training"].get("early_stopping_patience", 5)
     early_stopping_terminate = train_config["training"].get("early_stopping_terminate", False)
@@ -182,7 +172,6 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
             x = batch["audio_data"].to(device)
             frame_labels = batch["frame_labels"].to(device)
             energy_mask = batch["energy_mask"].to(device)
-            norm_factor = get_normalization_factor(x, energy_masking=energy_masking, target_type=target_type)
 
             if epoch == 0 and batch_idx == 0:
                 print("Input size: {}".format(x.size()))
@@ -217,7 +206,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
                 # Compute loss
                 src_spec = batch[label + "_transformed"].to(device)
-                src_loss = separation_loss_func(src_spec, x_masked, weight, norm_factor, energy_mask, mel_tf)
+                src_loss = separation_loss_fn(src_spec, x_masked, weight, energy_mask)
 
                 # Accumulate loss for each source
                 if train_loss is None:
@@ -239,7 +228,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
             # Cleanup
             del x, masks, energy_mask, batch, mask, x_masked, train_loss, weight, \
-                norm_factor, src_spec, src_spec_diff, src_loss
+                src_spec, src_spec_diff, src_loss
             torch.cuda.empty_cache()
 
         # Evaluate on validation set
@@ -249,7 +238,6 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                 x = batch["audio_data"].to(device)
                 frame_labels = batch["frame_labels"].to(device)
                 energy_mask = batch["energy_mask"].to(device)
-                norm_factor = get_normalization_factor(x, energy_masking=energy_masking, target_type=target_type)
                 # Set models to eval mode
                 separator.eval()
 
@@ -280,7 +268,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
                     # Compute loss
                     src_spec = batch[label + "_transformed"].to(device)
-                    src_loss = separation_loss_func(src_spec, x_masked, weight, norm_factor, energy_mask, mel_tf)
+                    src_loss = separation_loss_fn(src_spec, x_masked, weight, energy_mask)
 
                     # Accumulate loss for each source
                     if valid_loss is None:
@@ -298,7 +286,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
                 # Cleanup
                 del x, masks, energy_mask, batch, mask, x_masked, valid_loss, weight, \
-                    norm_factor, src_spec, src_spec_diff, src_loss
+                    src_spec, src_spec_diff, src_loss
                 torch.cuda.empty_cache()
 
         # Log losses
