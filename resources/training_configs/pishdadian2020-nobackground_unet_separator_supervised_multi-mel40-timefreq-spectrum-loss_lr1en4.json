@@ -1,0 +1,66 @@
+{
+    "input_transforms": [
+        {
+            "name": "Spectrogram",
+            "parameters": {
+                "n_fft": 512,
+                "hop_length": 128,
+                "window_fn": "sqrt_hann_window",
+                "power": 1.0,
+                "window_scaling": true
+            }
+        }
+    ],
+
+    "separator": {
+        "model": "UNetSpectrogramSeparator",
+        "input_transforms": [
+            {
+                "name": "LogMagnitude",
+                "parameters": {}
+            }
+        ],
+        "parameters": {
+            
+            "n_blocks": 3,
+            "init_channels": 64
+            
+        }
+    },
+
+    "losses": {
+        "separation": [
+            {
+                "energy_masking": true,
+                "target_type": "timefreq",
+                "mel_scale": true,
+                "mel_params": {
+                    "n_mels": 40
+                }
+            },
+            {
+                "energy_masking": true,
+                "target_type": "spectrum",
+                "mel_scale": true,
+                "mel_params": {
+                    "n_mels": 40
+                }
+            }
+        ]
+    },
+
+    "training": {
+        "batch_size": 8,
+        "num_epochs": 50,
+        "class_prior_weighting": true,
+        "early_stopping_patience": 5,
+        "early_stopping_terminate": true,
+        "optimizer": {
+            "name": "Adam",
+            "parameters": {
+                "lr": 0.0001
+            }
+        }
+    }
+
+}
