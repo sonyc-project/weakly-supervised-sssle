@@ -148,37 +148,134 @@ def mixture_margin_asymmetric_loss(x, labels, masks, energy_mask, energy_masking
     return mix_loss
 
 
-def get_mixture_loss_function(train_config):
-    mixture_loss_config = train_config["losses"]["mixture"]
-    loss_name = mixture_loss_config["name"]
-    energy_masking = mixture_loss_config.get("energy_masking", False)
-    target_type = mixture_loss_config.get("target_type", "timefreq")
-    spec_params = get_spec_params(train_config)
-    mel_scale = mixture_loss_config.get("mel_scale", False)
-    mel_params = mixture_loss_config.get("mel_params", None)
+def create_average_of_losses(loss_func_list, loss_weight_list=None):
+    num_losses = len(loss_func_list)
 
-    if loss_name == "mixture_loss":
-        return partial(mixture_loss,
-                       energy_masking=energy_masking,
-                       target_type=target_type,
-                       spec_params=spec_params,
-                       mel_scale=mel_scale,
-                       mel_params=mel_params)
-    elif loss_name == "mixture_margin_loss":
-        return partial(mixture_margin_loss, margin=mixture_loss_config["margin"],
-                       energy_masking=energy_masking,
-                       target_type=target_type,
-                       spec_params=spec_params,
-                       mel_scale=mel_scale,
-                       mel_params=mel_params)
-    elif loss_name == "mixture_margin_asymmetric_loss":
-        return partial(mixture_margin_asymmetric_loss,
-                       margin=mixture_loss_config["margin"],
-                       energy_masking=energy_masking,
-                       target_type=target_type,
-                       spec_params=spec_params,
-                       mel_scale=mel_scale,
-                       mel_params=mel_params)
+    def f(*args, **kwargs):
+        total_loss = None
+        for loss_idx, loss_func in enumerate(loss_func_list):
+            loss = loss_func(*args, **kwargs)
+            if loss_weight_list is not None:
+                loss *= loss_weight_list[loss_idx]
+
+            if total_loss is None:
+                total_loss = loss
+            else:
+                total_loss += loss
+        return total_loss / num_losses
+    return f
+
+
+def get_mixture_loss_function(train_config):
+    mixture_loss_config_list = train_config["losses"]["mixture"]
+    spec_params = get_spec_params(train_config)
+
+    if type(mixture_loss_config_list) == dict:
+        mixture_loss_config_list = [mixture_loss_config_list]
     else:
-        raise ValueError("Invalid mixture loss type: {}".format(mixture_loss_config["name"]))
+        assert type(mixture_loss_config_list) == list
+
+    loss_func_list = []
+    loss_weight_list = []
+    for mixture_loss_config in mixture_loss_config_list:
+        loss_name = mixture_loss_config["name"]
+        energy_masking = mixture_loss_config.get("energy_masking", False)
+        target_type = mixture_loss_config.get("target_type", "timefreq")
+        mel_scale = mixture_loss_config.get("mel_scale", False)
+        mel_params = mixture_loss_config.get("mel_params", None)
+        weight = mixture_loss_config["weight"]
+
+        if loss_name == "mixture_loss":
+            loss_func = partial(mixture_loss,
+                                energy_masking=energy_masking,
+                                target_type=target_type,
+                                spec_params=spec_params,
+                                mel_scale=mel_scale,
+                                mel_params=mel_params)
+        elif loss_name == "mixture_margin_loss":
+            loss_func = partial(mixture_margin_loss, margin=mixture_loss_config["margin"],
+                                energy_masking=energy_masking,
+                                target_type=target_type,
+                                spec_params=spec_params,
+                                mel_scale=mel_scale,
+                                mel_params=mel_params)
+        elif loss_name == "mixture_margin_asymmetric_loss":
+            loss_func = partial(mixture_margin_asymmetric_loss,
+                                margin=mixture_loss_config["margin"],
+                                energy_masking=energy_masking,
+                                target_type=target_type,
+                                spec_params=spec_params,
+                                mel_scale=mel_scale,
+                                mel_params=mel_params)
+        else:
+            raise ValueError("Invalid mixture loss type: {}".format(mixture_loss_config["name"]))
+
+        loss_func_list.append(loss_func)
+        loss_weight_list.append(weight)
+
+    if len(loss_func_list) == 1:
+        return loss_func_list[0]
+    else:
+        return create_average_of_losses(loss_func_list, loss_weight_list=loss_weight_list)
+
+
+def separation_loss(src_spec, x_masked, weight, norm_factor, energy_mask, mel_tf, energy_masking=False, target_type="timefreq", spec_params=None, mel_scale=False, mel_params=None):
+    # Optionally apply mel scale
+    if mel_scale:
+        src_spec = mel_tf(src_spec)
+        x_masked = mel_tf(x_masked)
+
+    src_spec_diff = (src_spec - x_masked) * weight
+    if energy_masking:
+        src_spec_diff = src_spec_diff * energy_mask[:, None, None, :]
+
+    if target_type == "timefreq":
+        src_spec_diff = src_spec_diff.reshape(src_spec.size(0), -1)
+    elif target_type == "spectrum":
+        # Average over time and channels
+        src_spec_diff = src_spec_diff.mean(dim=-1).mean(dim=1)
+    elif target_type == "energy":
+        src_spec_diff = src_spec_diff.mean(dim=-1).mean(dim=-1).mean(dim=-1, keepdim=True)
+    elif target_type == "dbfs":
+        src_spec_dbfs = compute_dbfs_spec(src_spec, SAMPLE_RATE, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params, device=src_spec.device)
+        x_masked_dbfs = compute_dbfs_spec(x_masked, SAMPLE_RATE, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params, device=src_spec.device)
+        src_spec_diff = (src_spec_dbfs - x_masked_dbfs).unsqueeze(-1)
+        del src_spec_dbfs, x_masked_dbfs
+    else:
+        raise ValueError("Invalid target type: {}".format(target_type))
+
+    src_loss = torch.norm(src_spec_diff, p=1, dim=1) / norm_factor
+    src_loss = src_loss.mean()
+    return src_loss
+
+
+def get_separation_loss_function(train_config):
+    separation_loss_config_list = train_config["losses"]["separation"]
+    spec_params = get_spec_params(train_config)
+
+    if type(separation_loss_config_list) == dict:
+        separation_loss_config_list = [separation_loss_config_list]
+    else:
+        assert type(separation_loss_config_list) == list
+
+    loss_func_list = []
+    for separation_loss_config in separation_loss_config_list:
+        energy_masking = separation_loss_config.get("energy_masking", False)
+        target_type = separation_loss_config.get("target_type", "timefreq")
+        mel_scale = separation_loss_config.get("mel_scale", False)
+        mel_params = separation_loss_config.get("mel_params", None)
+
+        loss_func = partial(separation_loss,
+                            energy_masking=energy_masking,
+                            target_type=target_type,
+                            spec_params=spec_params,
+                            mel_scale=mel_scale,
+                            mel_params=mel_params)
+
+        loss_func_list.append(loss_func)
+
+    if len(loss_func_list) == 1:
+        return loss_func_list[0]
+    else:
+        return create_average_of_losses(loss_func_list)
 

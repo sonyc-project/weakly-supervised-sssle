@@ -151,7 +151,6 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
 
     # Set up loss functions
     mixture_loss_fn = get_mixture_loss_function(train_config)
-    mixture_loss_weight = train_config["losses"]["mixture"]["weight"]
     # JTC: Look into BCEWithLogitsLoss, but for now just use BCELoss
     cls_loss_weight = train_config["losses"]["classification"]["weight"]
 
@@ -317,7 +316,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                     train_cls_loss = train_cls_loss + F.binary_cross_entropy(src_cls_output, target)
 
             # Accumulate loss
-            train_total_loss = train_mix_loss * mixture_loss_weight + train_cls_loss * cls_loss_weight
+            train_total_loss = train_mix_loss + train_cls_loss * cls_loss_weight
 
             # Backprop
             train_total_loss.backward()
@@ -446,7 +445,7 @@ def train(root_data_dir, train_config, output_dir, num_data_workers=1,
                         valid_cls_loss = valid_cls_loss + F.binary_cross_entropy(src_cls_output, target)
 
                 # Accumulate loss
-                valid_total_loss = valid_mix_loss * mixture_loss_weight + valid_cls_loss * cls_loss_weight
+                valid_total_loss = valid_mix_loss + valid_cls_loss * cls_loss_weight
 
                 # Accumulate loss for epoch
                 accum_valid_mix_loss += valid_mix_loss.item()
