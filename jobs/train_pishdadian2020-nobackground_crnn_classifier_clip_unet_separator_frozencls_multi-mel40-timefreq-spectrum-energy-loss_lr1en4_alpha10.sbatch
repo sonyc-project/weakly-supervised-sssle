@@ -30,7 +30,7 @@ source activate cdsd
 
 /home/jtc440/miniconda3/envs/cdsd/bin/python -u /home/jtc440/dev/class_dependent_spl_decomposition/cdsd/train_classifier.py \
     /beegfs/jtc440/cdsd-data/pishdadian2020merl-lambda5_soundscapes \
-    /home/jtc440/dev/class_dependent_spl_decomposition/resources/training_configs/pishdadian2020-nobackground_crnn_classifier_clip_lr1en4_alpha10.json \
+    /home/jtc440/dev/class_dependent_spl_decomposition/resources/training_configs/pishdadian2020-nobackground_crnn_classifier_clip_lr1en4.json \
     /scratch/jtc440/cdsd/models/pishdadian2020-nobackground_crnn_classifier_clip_multi-mel40-timefreq-spectrum-energy-loss_lr1en4_alpha10 \
     --num-data-workers 4 \
     --checkpoint-interval 5
