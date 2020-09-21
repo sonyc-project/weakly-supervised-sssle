@@ -70,7 +70,7 @@ def compute_dbfs(audio, sr, train_config, weighting='a', device=None):
     return dbfs
 
 
-def compute_dbfs_spec(spec, sr, spec_params, mel_scale=False, mel_params=None, weighting='a', device=None):
+def compute_dbfs_spec(spec, sr, spec_params, energy_mask=None, energy_masking=False, mel_scale=False, mel_params=None, weighting='a', device=None):
     n_fft = spec_params["n_fft"]
 
     # Account for window scaling
@@ -81,8 +81,15 @@ def compute_dbfs_spec(spec, sr, spec_params, mel_scale=False, mel_params=None, w
     spec = spec.squeeze(dim=1)
     spec[spec == 0] = 1e-17
     spec = torch.pow(spec, 2)
+
     # Take mean of frequency bins across time
-    spec = spec.mean(dim=-1)
+    if energy_masking:
+        assert energy_mask is not None
+        num_frames = energy_mask.sum(dim=-1)
+        spec = spec.sum(dim=-1) / num_frames
+    else:
+        spec = spec.mean(dim=-1)
+
 
     weighting = get_freq_weighting(n_fft, sr, weighting=weighting, device=device)
     # If we are estimating in the mel frequency scale, alter freq band weights

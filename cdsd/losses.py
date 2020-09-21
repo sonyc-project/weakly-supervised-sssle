@@ -58,12 +58,12 @@ def get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking=Fa
         return mix_present_spec_diff, present_spec, absent_spec, x
 
 
-def get_normalization_factor(x, energy_masking=False, target_type="timefreq"):
+def get_normalization_factor(x, energy_mask, energy_masking=False, target_type="timefreq"):
     batch_size, n_channel, n_freq, n_time = x.size()
     if target_type == "timefreq" and energy_masking is None:
         return torch.tensor(n_freq * n_time, dtype=x.dtype, device=x.device)
     elif target_type == "timefreq" and energy_masking is not None:
-        return torch.tensor(n_freq * n_time, dtype=x.dtype, device=x.device)
+        return energy_mask.sum(dim=-1) * n_freq
     elif target_type == "spectrum":
         return torch.tensor(n_freq, dtype=x.dtype, device=x.device)
     elif target_type in ("dbfs", "energy"):
@@ -72,24 +72,40 @@ def get_normalization_factor(x, energy_masking=False, target_type="timefreq"):
         raise ValueError("Invalid target type: {}".format(target_type))
 
 
-def transform_spec_to_target(mix_present_spec_diff, present_spec, absent_spec, x, target_type, spec_params=None, mel_scale=False, mel_params=None):
+def transform_spec_to_target(mix_present_spec_diff, present_spec, absent_spec, x, energy_mask, target_type, energy_masking=False, spec_params=None, mel_scale=False, mel_params=None):
     batch_size, n_channel, n_freq, n_time = x.size()
     if target_type == "timefreq":
         mix_present_spec_diff = mix_present_spec_diff.reshape(batch_size, -1)
         absent_spec = absent_spec.reshape(batch_size, -1)
     elif target_type == "spectrum":
         # Average over time and channels
-        mix_present_spec_diff = mix_present_spec_diff.mean(dim=-1).mean(dim=1)
-        absent_spec = absent_spec.mean(dim=-1).mean(dim=1)
+        if energy_masking:
+            num_frames = energy_mask.sum(dim=-1)
+            mix_present_spec_diff = mix_present_spec_diff.sum(dim=-1).mean(dim=1) / num_frames
+            absent_spec = absent_spec.sum(dim=-1).mean(dim=1) / num_frames
+        else:
+            mix_present_spec_diff = mix_present_spec_diff.mean(dim=-1).mean(dim=1)
+            absent_spec = absent_spec.mean(dim=-1).mean(dim=1)
     elif target_type == "dbfs":
-        x_dbfs = compute_dbfs_spec(x, SAMPLE_RATE, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params, device=x.device)
-        present_dbfs = compute_dbfs_spec(present_spec, SAMPLE_RATE, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params, device=x.device)
+        x_dbfs = compute_dbfs_spec(x, SAMPLE_RATE, energy_mask=energy_mask,
+                                   energy_masking=energy_masking, spec_params=spec_params,
+                                   mel_scale=mel_scale, mel_params=mel_params, device=x.device)
+        present_dbfs = compute_dbfs_spec(present_spec, SAMPLE_RATE, energy_mask=energy_mask,
+                                         energy_masking=energy_masking, spec_params=spec_params,
+                                         mel_scale=mel_scale, mel_params=mel_params, device=x.device)
         mix_present_spec_diff = (x_dbfs - present_dbfs).unsqueeze(-1)
-        absent_spec = compute_dbfs_spec(absent_spec, SAMPLE_RATE, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params, device=x.device).unsqueeze(-1)
+        absent_spec = compute_dbfs_spec(absent_spec, SAMPLE_RATE, energy_mask=energy_mask,
+                                        energy_masking=energy_masking, spec_params=spec_params,
+                                        mel_scale=mel_scale, mel_params=mel_params, device=x.device).unsqueeze(-1)
     elif target_type == "energy":
         # Average over time, freq, and channel dimensions
-        mix_present_spec_diff = mix_present_spec_diff.mean(dim=-1).mean(dim=-1).mean(dim=-1, keepdim=True)
-        absent_spec = absent_spec.mean(dim=-1).mean(dim=-1).mean(dim=-1, keepdim=True)
+        if energy_masking:
+            num_frames = energy_mask.sum(dim=-1)
+            mix_present_spec_diff = mix_present_spec_diff.sum(dim=-1).mean(dim=-1).mean(dim=-1, keepdim=True) / num_frames
+            absent_spec = absent_spec.sum(dim=-1).mean(dim=-1).mean(dim=-1, keepdim=True) / num_frames
+        else:
+            mix_present_spec_diff = mix_present_spec_diff.mean(dim=-1).mean(dim=-1).mean(dim=-1, keepdim=True)
+            absent_spec = absent_spec.mean(dim=-1).mean(dim=-1).mean(dim=-1, keepdim=True)
     else:
         raise ValueError("Invalid target type: {}".format(target_type))
 
@@ -98,8 +114,8 @@ def transform_spec_to_target(mix_present_spec_diff, present_spec, absent_spec, x
 
 def mixture_loss(x, labels, masks, energy_mask, energy_masking=False, target_type="timefreq", spec_params=None, mel_scale=False, mel_params=None):
     mix_present_spec_diff, present_spec, absent_spec, x = get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking, flatten=(target_type == "timefreq"), mel_scale=mel_scale, mel_params=mel_params)
-    mix_present_spec_diff, absent_spec = transform_spec_to_target(mix_present_spec_diff, present_spec, absent_spec, x, target_type, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params)
-    norm_factor = get_normalization_factor(x, energy_masking=energy_masking, target_type=target_type)
+    mix_present_spec_diff, absent_spec = transform_spec_to_target(mix_present_spec_diff, present_spec, absent_spec, x, energy_mask, target_type, energy_masking=False, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params)
+    norm_factor = get_normalization_factor(x, energy_mask, energy_masking=energy_masking, target_type=target_type)
 
     present_loss = torch.norm(mix_present_spec_diff, p=1, dim=1) / norm_factor
     # Don't apply norm when using dBFS
@@ -116,7 +132,7 @@ def mixture_margin_loss(x, labels, masks, energy_mask, energy_masking=False, mar
     assert margin is not None
     mix_present_spec_diff, present_spec, absent_spec, x = get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking, flatten=(target_type == "timefreq"), mel_scale=mel_scale, mel_params=mel_params)
     mix_present_spec_diff, absent_spec = transform_spec_to_target(mix_present_spec_diff, present_spec, absent_spec, x, target_type, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params)
-    norm_factor = get_normalization_factor(x, energy_masking=energy_masking, target_type=target_type)
+    norm_factor = get_normalization_factor(x, energy_mask, energy_masking=energy_masking, target_type=target_type)
 
     present_loss = F.relu(torch.norm(mix_present_spec_diff, p=1, dim=1) - margin) / norm_factor
     # Don't apply norm when using dBFS
@@ -133,7 +149,7 @@ def mixture_margin_asymmetric_loss(x, labels, masks, energy_mask, energy_masking
     assert margin is not None
     mix_present_spec_diff, present_spec, absent_spec, x = get_mixture_loss_spec_terms(x, labels, masks, energy_mask, energy_masking, flatten=(target_type == "timefreq"), mel_scale=mel_scale, mel_params=mel_params)
     mix_present_spec_diff, absent_spec = transform_spec_to_target(mix_present_spec_diff, present_spec, absent_spec, x, target_type, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params)
-    norm_factor = get_normalization_factor(x, energy_masking=energy_masking, target_type=target_type)
+    norm_factor = get_normalization_factor(x, energy_mask, energy_masking=energy_masking, target_type=target_type)
 
     present_underest = F.relu(F.relu(mix_present_spec_diff).sum(dim=1) - margin) / norm_factor
     present_overest = F.relu(-mix_present_spec_diff).sum(dim=1) / norm_factor
@@ -234,18 +250,38 @@ def separation_loss(src_spec, x_masked, weight, energy_mask, mel_tf=None, energy
         src_spec_diff = src_spec_diff.reshape(src_spec.size(0), -1)
     elif target_type == "spectrum":
         # Average over time and channels
-        src_spec_diff = src_spec_diff.mean(dim=-1).mean(dim=1)
+        if energy_masking:
+            num_frames = energy_masking.sum(dim=-1)
+            src_spec_diff = src_spec_diff.sum(dim=-1).mean(dim=1) / num_frames
+        else:
+            src_spec_diff = src_spec_diff.mean(dim=-1).mean(dim=1)
     elif target_type == "energy":
-        src_spec_diff = src_spec_diff.mean(dim=-1).mean(dim=-1).mean(dim=-1, keepdim=True)
+        if energy_masking:
+            num_frames = energy_masking.sum(dim=-1)
+            src_spec_diff = src_spec_diff.sum(dim=-1).mean(dim=-1).mean(dim=-1, keepdim=True) / num_frames
+        else:
+            src_spec_diff = src_spec_diff.mean(dim=-1).mean(dim=-1).mean(dim=-1, keepdim=True)
     elif target_type == "dbfs":
-        src_spec_dbfs = compute_dbfs_spec(src_spec, SAMPLE_RATE, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params, device=src_spec.device)
-        x_masked_dbfs = compute_dbfs_spec(x_masked, SAMPLE_RATE, spec_params=spec_params, mel_scale=mel_scale, mel_params=mel_params, device=src_spec.device)
+        src_spec_dbfs = compute_dbfs_spec(src_spec, SAMPLE_RATE,
+                                          energy_mask=energy_mask,
+                                          energy_masking=energy_masking,
+                                          spec_params=spec_params,
+                                          mel_scale=mel_scale,
+                                          mel_params=mel_params,
+                                          device=src_spec.device)
+        x_masked_dbfs = compute_dbfs_spec(x_masked, SAMPLE_RATE,
+                                          energy_mask=energy_mask,
+                                          energy_masking=energy_masking,
+                                          spec_params=spec_params,
+                                          mel_scale=mel_scale,
+                                          mel_params=mel_params,
+                                          device=src_spec.device)
         src_spec_diff = (src_spec_dbfs - x_masked_dbfs).unsqueeze(-1)
         del src_spec_dbfs, x_masked_dbfs
     else:
         raise ValueError("Invalid target type: {}".format(target_type))
 
-    norm_factor = get_normalization_factor(src_spec, energy_masking=energy_masking, target_type=target_type)
+    norm_factor = get_normalization_factor(src_spec, energy_mask, energy_masking=energy_masking, target_type=target_type)
     src_loss = torch.norm(src_spec_diff, p=1, dim=1) / norm_factor
     src_loss = src_loss.mean()
     return src_loss
