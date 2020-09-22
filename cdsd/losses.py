@@ -306,6 +306,8 @@ def get_separation_loss_function(train_config, device=None):
             mel_tf = MelScale(sample_rate=SAMPLE_RATE, **mel_params)
             if device is not None:
                 mel_tf = mel_tf.to(device)
+        else:
+            mel_tf = None
 
         loss_func = partial(separation_loss,
                             mel_tf=mel_tf,
